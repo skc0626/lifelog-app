@@ -6,14 +6,13 @@ import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import pytz # YENİ: Saat dilimi için
+import pytz
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 
-# --- ZAMAN FONKSİYONU (TR SAATİ) ---
+# --- ZAMAN FONKSİYONU ---
 def get_tr_now():
-    """Türkiye saatine göre şu anki zamanı döner."""
     return datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
 
 # --- GÜVENLİK ---
@@ -38,7 +37,6 @@ def get_google_sheet_client():
     return client
 
 # --- YARDIMCI VERİ FONKSİYONLARI ---
-
 def get_settings():
     defaults = {"target_cal": 2450, "target_prot": 200, "target_karb": 300, "target_yag": 50}
     try:
@@ -66,7 +64,6 @@ def save_settings(new_settings):
         return False
 
 def get_dashboard_data():
-    """Dashboard için tüm özet verileri çeker."""
     client = get_google_sheet_client()
     try: db = client.open("LifeLog_DB")
     except: return {}
@@ -74,7 +71,7 @@ def get_dashboard_data():
     stats = {}
     today = get_tr_now().date()
 
-    # 1. Money Stats
+    # 1. Money
     try:
         m_sheet = db.worksheet("Money")
         m_data = m_sheet.get_all_records()
@@ -86,14 +83,13 @@ def get_dashboard_data():
                 daily_m = df_m[df_m["Tarih"].dt.date == today]
                 stats['money_count'] = len(daily_m)
                 stats['money_total'] = daily_m["Tutar"].sum()
-                # Aylık
                 monthly_m = df_m[(df_m["Tarih"].dt.month == today.month) & (df_m["Tarih"].dt.year == today.year)]
                 stats['money_month'] = monthly_m["Tutar"].sum()
             else: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
         else: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
     except: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
 
-    # 2. Nutrition Stats
+    # 2. Nutrition
     try:
         n_sheet = db.worksheet("Nutrition")
         n_data = n_sheet.get_all_records()
@@ -104,13 +100,12 @@ def get_dashboard_data():
                 daily_n = df_n[df_n["Tarih"].dt.date == today]
                 for col in ["Kalori", "Protein", "Karb", "Yağ"]:
                      if col in df_n.columns: daily_n[col] = pd.to_numeric(daily_n[col], errors='coerce').fillna(0)
-                
                 stats['cal'] = daily_n["Kalori"].sum() if not daily_n.empty else 0
             else: stats['cal'] = 0
         else: stats['cal'] = 0
     except: stats['cal'] = 0
 
-    # 3. Gym Stats (Son 3 Antrenman - Düzeltildi)
+    # 3. Gym
     try:
         g_sheet = db.worksheet("Gym")
         g_data = g_sheet.get_all_records()
@@ -118,16 +113,14 @@ def get_dashboard_data():
             df_g = pd.DataFrame(g_data)
             if "Tarih" in df_g.columns and "Program" in df_g.columns:
                 df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce')
-                # En yeniden en eskiye sırala
                 df_g = df_g.sort_values(by="Tarih", ascending=False)
-                # Tekrarları sil, sadece program isimlerini al
                 unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
                 stats['last_workouts'] = unique_sessions['Program'].tolist()
             else: stats['last_workouts'] = []
         else: stats['last_workouts'] = []
     except: stats['last_workouts'] = []
 
-    # 4. Weight Stats (Son Kilo)
+    # 4. Weight
     try:
         w_sheet = db.worksheet("Weight")
         w_data = w_sheet.get_all_records()
@@ -138,7 +131,6 @@ def get_dashboard_data():
                 df_w = df_w.sort_values(by="Tarih", ascending=False)
                 last_entry = df_w.iloc[0]
                 stats['last_weight'] = last_entry['Kilo']
-                # Tarihi string'e çevir (GG.AA)
                 stats['last_weight_date'] = last_entry['Tarih'].strftime("%d.%m")
             else: stats['last_weight'] = None
         else: stats['last_weight'] = None
@@ -147,10 +139,6 @@ def get_dashboard_data():
     return stats
 
 def get_gym_history(current_program):
-    """
-    BUG FIX: Sadece seçili programın (Örn: Pull 1) geçmişini getirir.
-    Böylece Pull 2 verisi Pull 1'de görünmez.
-    """
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet("Gym")
@@ -158,7 +146,6 @@ def get_gym_history(current_program):
         if not data: return {}
         df = pd.DataFrame(data)
         
-        # Filtreleme: Sadece şu anki programın verilerini al
         if "Program" in df.columns:
             df = df[df["Program"] == current_program]
         
@@ -175,10 +162,8 @@ def get_gym_history(current_program):
             for move in unique_moves:
                 move_logs = df[df["Hareket"] == move]
                 if move_logs.empty: continue
-                
                 last_date = move_logs.iloc[0]["Tarih"]
                 last_date_str = last_date.strftime("%Y-%m-%d")
-                
                 last_session = move_logs[move_logs["Tarih"] == last_date]
                 sets_summary = []
                 for _, row in last_session.iterrows():
@@ -193,7 +178,6 @@ def get_gym_history(current_program):
         return history
     except: return {}
 
-# --- ORTAK KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
     try:
         client = get_google_sheet_client()
@@ -281,12 +265,10 @@ def close_camera():
     st.session_state.camera_active = False
 
 # ==========================================
-# 🏠 ANA MENÜ (DASHBOARD)
+# 🏠 ANA MENÜ (DASHBOARD - UI GÜNCELLENDİ)
 # ==========================================
 def render_home():
     st.title("🌱 LifeLog")
-    
-    # Zaman: Türkiye Saati
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y')}")
     
@@ -297,9 +279,7 @@ def render_home():
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"**💸 Finans (Bugün)**")
-        count = stats.get('money_count', 0)
-        total = stats.get('money_total', 0)
-        st.write(f"{count} işlem | **{total:.2f} ₺**")
+        st.write(f"{stats.get('money_count', 0)} işlem | **{stats.get('money_total', 0):,.2f} ₺**")
     
     with c2:
         st.markdown(f"**🥗 Beslenme (Bugün)**")
@@ -316,37 +296,38 @@ def render_home():
         st.markdown("**🏋️‍♂️ Son Antrenmanlar**")
         workouts = stats.get('last_workouts', [])
         if workouts:
-            # En yeni en solda: Legs -> Pull 2 -> Push 1
             history_str = " → ".join(workouts)
             st.info(history_str)
         else:
             st.caption("Kayıt yok.")
             
     with c4:
-        st.markdown("**⚖️ Güncel Kilo**")
+        # GÜNCELLENDİ: Temiz Kilo Gösterimi
         last_w = stats.get('last_weight')
         last_w_date = stats.get('last_weight_date')
         if last_w:
-            st.metric("Son Ölçüm", f"{last_w} kg", f"{last_w_date} tarihinde")
+            st.metric("Son Ölçüm", f"{last_w} kg ({last_w_date})")
         else:
-            st.caption("Veri yok.")
+            st.metric("Son Ölçüm", "- kg")
         
     st.divider()
 
     st.write("### Modüller")
     col1, col2 = st.columns(2)
     with col1:
+        # ANA BUTONLAR PRIMARY (KIRMIZI/DOLU)
         st.button("💸 Money", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
-        st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True)
+        st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Nutrition", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
-        st.button("🏋️‍♂️ Spor (Gym)", on_click=navigate_to, args=("sport",), use_container_width=True)
+        st.button("🏋️‍♂️ Spor (Gym)", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
             
     col3, col4 = st.columns(2)
     with col3:
-        st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
+        # YAN BUTONLAR SECONDARY (GRİ/BOŞ)
+        st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True, type="secondary")
     with col4:
-        st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True)
+        st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
 
 # ==========================================
 # ⚙️ SETTINGS MODÜLÜ
@@ -372,7 +353,7 @@ def render_settings():
                     st.success("Ayarlar güncellendi! ✅")
 
 # ==========================================
-# ⚖️ KİLO MODÜLÜ (SADELEŞTİRİLDİ)
+# ⚖️ KİLO MODÜLÜ
 # ==========================================
 def render_weight():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -380,12 +361,11 @@ def render_weight():
     
     with st.form("weight_form"):
         kilo = st.number_input("Güncel Kilo (kg)", min_value=0.0, step=0.1, format="%.1f")
-        # WC radyo butonu kaldırıldı, sadece tarih ve kilo kaydediyoruz
         
         if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
             if kilo > 0:
                 tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
-                veri = [tarih, kilo] # Sadece 2 sütun
+                veri = [tarih, kilo] 
                 with st.spinner("Kaydediliyor..."):
                     if save_to_sheet("Weight", veri):
                         st.success(f"✅ {kilo} kg kaydedildi.")
@@ -398,40 +378,19 @@ def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🥗 Beslenme Takibi")
 
-    # Türkiye saati ile tekrar veri çek
-    # (Önceki fonksiyon cacheli olabilir veya sunucu saatiyle karışabilir, garanti olsun)
     targets = st.session_state.user_settings
-    
-    # Dashboard verisini tekrar kullanabiliriz
-    stats = get_dashboard_data() 
+    stats = get_dashboard_data()
     curr_cal = stats.get('cal', 0)
-    
-    # Detaylı makro takibi için (dashboard fonksiyonunda detay çekmiyorduk, gerekirse buraya özel query eklenebilir)
-    # Şimdilik dashboard'dan gelen veriyi kullanıyoruz, orası sadece cal dönüyorsa detayları 0 gösterir
-    # İstersen buraya get_nutrition_stats() tekrar eklenebilir. 
-    # Performans için dashboard verisi yeterli.
-    
-    # Not: Dashboard fonksiyonunda detaylı makroları çekmemiştik, burada sadece kalori var. 
-    # Eğer makroları da görmek istiyorsan yukarıdaki get_nutrition_stats fonksiyonunu tekrar ekleyebilirim.
-    # Şimdilik dashboard'dan gelen kalori doğru, diğerleri 0 görünebilir. 
-    # Düzeltiyorum: Dashboard fonksiyonuna detay eklemiştim zaten.
-    
-    # Manuel olarak nutrition stats'i burada çağıralım ki makrolar kesin gelsin
-    # (Dashboard fonksiyonu bazen sadeleştirilmiş veri döner)
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Kalori", f"{curr_cal} / {targets['target_cal']}")
-    # Diğer makroları anlık görmek için ayrı sorgu atmak lazım ama şimdilik dashboard verisiyle idare edelim
-    # Eğer dashboard fonksiyonunda makroları return etmediysem burası boş kalır.
-    # Kontrol ettim: Dashboard fonksiyonu sadece 'cal' dönüyor.
-    # O yüzden burada o detayları şimdilik göstermiyorum veya 0. 
-    # Eğer istersen buraya özel get_nutrition_detailed fonksiyonu ekleriz.
+    # Makroları anlık çekmek için ekstra sorgu yapılabilir, şimdilik dashboard datasıyla devam
+    # c2.metric("Protein", ...) 
     
     st.divider()
 
     tab1, tab2, tab3 = st.tabs(["📸 Fotoğraf", "✍️ Yazarak Ekle", "📝 Manuel"])
     
-    # TAB 1: FOTO
     with tab1:
         img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
         st.write("veya")
@@ -464,7 +423,6 @@ def render_nutrition():
                         data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
                         ai_cal, p, k, y = int(data.get("tahmini_toplam_kalori", 0)), float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
                         yemek = data.get("yemek_adi", "Bilinmeyen")
-                        
                         math_cal = (p*4)+(k*4)+(y*9)
                         if math_cal > 0:
                             ratio = ((ai_cal+math_cal)/2)/math_cal
@@ -494,7 +452,6 @@ def render_nutrition():
                             st.toast(f"Kaydedildi!", icon="✅")
                             st.session_state.ai_nutrition_result = None
 
-    # TAB 2: TEXT
     with tab2:
         st.write("Yediklerini yaz, Gemini analiz etsin.")
         text_input = st.text_area("Ne yedin?", placeholder="Örn: 50g yulaf, 1 muz")
@@ -510,14 +467,11 @@ def render_nutrition():
                         """
                         response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
                         data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-                        
                         ai_cal = int(data.get("tahmini_toplam_kalori", 0))
                         p, k, y = float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
                         yemek = data.get("yemek_adi", text_input)
                         
-                        st.session_state.ai_text_result = {
-                            "yemek": yemek, "cal": ai_cal, "p": p, "k": k, "y": y
-                        }
+                        st.session_state.ai_text_result = {"yemek": yemek, "cal": ai_cal, "p": p, "k": k, "y": y}
                     except Exception as e: st.error(f"Hata: {e}")
             else: st.warning("Bir şeyler yazman lazım.")
 
@@ -538,7 +492,6 @@ def render_nutrition():
                         st.toast(f"Kaydedildi!", icon="✅")
                         st.session_state.ai_text_result = None
 
-    # TAB 3: MANUEL
     with tab3:
         with st.form("manuel_nutrition_form"):
             yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
@@ -593,7 +546,7 @@ def render_money():
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (Program Fix)
+# 🏋️‍♂️ SPOR MODÜLÜ
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -603,7 +556,6 @@ def render_sport():
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
     st.divider()
 
-    # BUG FIX: Geçmişi sadece "secilen_program"a göre çek
     with st.spinner("Geçmiş yükleniyor..."):
         history_data = get_gym_history(secilen_program)
     
