@@ -26,12 +26,10 @@ if "current_page" not in st.session_state:
 if "camera_active" not in st.session_state:
     st.session_state.camera_active = False
 
-# --- YARDIMCI FONKSİYONLAR (DÜZELTİLDİ) ---
+# --- YARDIMCI FONKSİYONLAR ---
 def navigate_to(page):
     st.session_state.current_page = page
-    # Sayfa değişince kamerayı kapatalım
     st.session_state.camera_active = False
-    # BURADAKİ st.rerun() SİLİNDİ. Streamlit otomatik halledecek.
 
 def open_camera():
     st.session_state.camera_active = True
@@ -50,7 +48,6 @@ def render_home():
     
     col1, col2 = st.columns(2)
     with col1:
-        # on_click kullanıyorsak st.rerun'a gerek yok
         st.button("💸 Money", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Nutrition", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
@@ -62,10 +59,9 @@ def render_home():
         st.button("⚙️ Ayarlar", disabled=True, use_container_width=True)
 
 # ==========================================
-# 💸 MONEY MODÜLÜ
+# 💸 MONEY MODÜLÜ (GÜNCELLENDİ)
 # ==========================================
 def render_money():
-    # Geri Dön butonu
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     
     st.title("💸 Finans Takibi")
@@ -75,20 +71,40 @@ def render_money():
         
         col1, col2 = st.columns(2)
         with col1:
-            kategori = st.selectbox("Kategori", ["Market", "Yemek (Dışarı)", "Ulaşım", "Teknoloji", "Giyim", "Eğlence", "Fatura/Sabit"])
+            # Genişletilmiş Kategori Listesi
+            kategori_listesi = [
+                "Market/Gıda", 
+                "Yemek (Dışarı)", 
+                "Ulaşım (Benzin/Taksi)", 
+                "Ev/Kira/Aidat",
+                "Fatura (Elektrik/Su/Net)",
+                "Sağlık/Kozmetik",
+                "Giyim/Aksesuar",
+                "Teknoloji/Elektronik",
+                "Eğlence/Aktivite",
+                "Abonelikler (App/Yayın)",
+                "Eğitim/Kitap",
+                "Diğer"
+            ]
+            kategori = st.selectbox("Kategori", kategori_listesi)
+            
         with col2:
-            odeme_yontemi = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Havale"])
+            # Setcard Eklendi
+            odeme_yontemi = st.selectbox("Ödeme Yöntemi", ["Kredi Kartı", "Nakit", "Setcard"])
             
         aciklama = st.text_input("Açıklama (Opsiyonel)", placeholder="Ne aldın?")
-        durtusel = st.toggle("⚠️ Çok da gerekli olmayan bir harcama mı?", value=False)
+        durtusel = st.toggle("⚠️ Dürtüsel Harcama mı?", value=False)
         
         submitted = st.form_submit_button("Kaydet", use_container_width=True, type="primary")
         
         if submitted:
             if tutar > 0:
-                st.success(f"Kaydedildi: {tutar} TL - {kategori}")
+                # Buraya veritabanı kodu gelecek
+                st.success(f"Kaydedildi: {tutar} TL - {kategori} ({odeme_yontemi})")
+                
+                # Ufak bir geri bildirim (Feedback)
                 if durtusel:
-                    st.toast("Dürtüsel harcama kaydedildi.", icon="⚠️")
+                    st.toast("Dürtüsel harcama not edildi 📝", icon="⚠️")
             else:
                 st.warning("Tutar girmeyi unuttun şef.")
 
@@ -120,7 +136,7 @@ def render_nutrition():
 
     if image:
         st.divider()
-        st.image(image, caption="Analiz Edilecek Görsel", width=300)
+        st.image(image, caption="Görsel", width=300)
         
         if st.button("Hesapla", type="primary", use_container_width=True):
             with st.spinner("LifeLog analiz yapıyor..."):
@@ -193,4 +209,3 @@ elif st.session_state.current_page == "nutrition":
     render_nutrition()
 elif st.session_state.current_page == "productivity":
     render_productivity()
-
