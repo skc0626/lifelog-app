@@ -89,7 +89,7 @@ def get_dashboard_data():
         else: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
     except: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
 
-    # 2. Nutrition Stats (Detaylı)
+    # 2. Nutrition Stats
     try:
         n_sheet = db.worksheet("Nutrition")
         n_data = n_sheet.get_all_records()
@@ -109,7 +109,7 @@ def get_dashboard_data():
         else: stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0
     except: stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0
 
-    # 3. Gym Stats
+    # 3. Gym Stats (GÜNCELLENDİ: Tarihli Liste)
     try:
         g_sheet = db.worksheet("Gym")
         g_data = g_sheet.get_all_records()
@@ -118,8 +118,17 @@ def get_dashboard_data():
             if "Tarih" in df_g.columns and "Program" in df_g.columns:
                 df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce')
                 df_g = df_g.sort_values(by="Tarih", ascending=False)
+                # Benzersiz antrenmanları al (Tarih ve Program çifti)
                 unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
-                stats['last_workouts'] = unique_sessions['Program'].tolist()
+                
+                # Listeyi (Program, TarihStr) tuple olarak sakla
+                workout_list = []
+                for _, row in unique_sessions.iterrows():
+                    d_str = row['Tarih'].strftime("%d.%m")
+                    p_name = row['Program']
+                    workout_list.append((p_name, d_str))
+                
+                stats['last_workouts'] = workout_list
             else: stats['last_workouts'] = []
         else: stats['last_workouts'] = []
     except: stats['last_workouts'] = []
@@ -135,7 +144,7 @@ def get_dashboard_data():
                 df_w = df_w.sort_values(by="Tarih", ascending=False)
                 last_entry = df_w.iloc[0]
                 stats['last_weight'] = last_entry['Kilo']
-                stats['last_weight_date'] = last_entry['Tarih'].strftime("%d.%m.%Y") # Gün.Ay.Yıl
+                stats['last_weight_date'] = last_entry['Tarih'].strftime("%d.%m")
             else: stats['last_weight'] = None
         else: stats['last_weight'] = None
     except: stats['last_weight'] = None
@@ -163,7 +172,7 @@ def get_gym_history(current_program):
                 move_logs = df[df["Hareket"] == move]
                 if move_logs.empty: continue
                 last_date = move_logs.iloc[0]["Tarih"]
-                last_date_str = last_date.strftime("%d.%m") # Sadece Gün.Ay
+                last_date_str = last_date.strftime("%d.%m")
                 last_session = move_logs[move_logs["Tarih"] == last_date]
                 sets_summary = []
                 for _, row in last_session.iterrows():
@@ -224,7 +233,7 @@ def open_camera(): st.session_state.camera_active = True; st.session_state.ai_nu
 def close_camera(): st.session_state.camera_active = False
 
 # ==========================================
-# 🏠 ANA MENÜ (DASHBOARD - PREMIUM UI)
+# 🏠 ANA MENÜ (DASHBOARD - DÜZELTİLMİŞ)
 # ==========================================
 def render_home():
     st.title("🌱 LifeLog")
@@ -242,8 +251,9 @@ def render_home():
             st.markdown("### 💸 Finans")
             count = stats.get('money_count', 0)
             total = stats.get('money_total', 0)
-            # Büyük Fontla Tutar
-            st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; color:#333;'>{total:,.0f} ₺</h2>", unsafe_allow_html=True)
+            # RENGİ KALDIRDIM (Sistem temasını kullanır, NET görünür)
+            # FONT KALINLAŞTIRILDI (font-weight: 700)
+            st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{total:,.0f} ₺</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Bugün ({count} işlem)</p>", unsafe_allow_html=True)
             
     with c2:
@@ -251,10 +261,8 @@ def render_home():
             st.markdown("### 🥗 Beslenme")
             current_cal = int(stats.get('cal', 0))
             target_cal = int(targets.get('target_cal', 2450))
-            # Büyük Fontla Kalori
-            st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; color:#333;'>{current_cal}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{current_cal}</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Hedef: {target_cal} kcal</p>", unsafe_allow_html=True)
-            # Mini Progress Bar
             if target_cal > 0:
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
@@ -269,26 +277,25 @@ def render_home():
             last_w_date = stats.get('last_weight_date')
             
             if last_w:
-                st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; color:#333;'>{last_w} kg</h2>", unsafe_allow_html=True)
-                st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Son Ölçüm: {last_w_date}</p>", unsafe_allow_html=True)
+                st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{last_w} kg</h2>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Son: {last_w_date}</p>", unsafe_allow_html=True)
             else:
                 st.info("Veri yok")
 
     with c4:
         with st.container(border=True):
             st.markdown("### 🏋️‍♂️ Spor Geçmişi")
-            workouts = stats.get('last_workouts', [])
+            workouts = stats.get('last_workouts', []) # [(Program, Tarih), (Program, Tarih)]
             if workouts:
-                # Alt alta daha temiz liste
-                for w in workouts:
-                    st.markdown(f"• {w}")
+                for w_name, w_date in workouts:
+                    # Tarih yanına parantez içinde, küçük ve gri yazılır
+                    st.markdown(f"• {w_name} <span style='color:grey; font-size:0.8rem;'>({w_date})</span>", unsafe_allow_html=True)
             else:
                 st.caption("Kayıt yok.")
 
-    st.write("") # Spacer
+    st.write("") 
     st.write("### Menü")
     
-    # Butonlar (Hepsi aynı boyutta ve düzende)
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
@@ -297,7 +304,6 @@ def render_home():
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
         st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
             
-    # Alt Menü (Secondary)
     st.divider()
     col3, col4 = st.columns(2)
     with col3:
@@ -318,7 +324,6 @@ def render_settings():
         with st.form("settings_form"):
             st.subheader("Beslenme Hedefleri")
             t_cal = st.number_input("Kalori (kcal)", value=int(current.get('target_cal', 2450)), step=50)
-            
             c1, c2, c3 = st.columns(3)
             with c1: t_prot = st.number_input("Protein (g)", value=int(current.get('target_prot', 200)), step=5)
             with c2: t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
@@ -337,11 +342,9 @@ def render_settings():
 def render_weight():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("⚖️ Kilo Takibi")
-    
     with st.container(border=True):
         with st.form("weight_form"):
             kilo = st.number_input("Güncel Kilo (kg)", min_value=0.0, step=0.1, format="%.1f")
-            
             if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
                 if kilo > 0:
                     tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
@@ -352,7 +355,7 @@ def render_weight():
                 else: st.warning("Kilo girmeyi unuttun.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ (GÜNCELLENDİ: DETAYLI HEADER)
+# 🥗 NUTRITION MODÜLÜ
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -361,11 +364,8 @@ def render_nutrition():
     targets = st.session_state.user_settings
     stats = get_dashboard_data()
     
-    # --- DETAYLI MACRO HEADER ---
     with st.container(border=True):
         col1, col2, col3, col4 = st.columns(4)
-        
-        # Helper function for metric display
         def show_metric(col, label, current, target, unit=""):
             col.markdown(f"<p style='margin:0; font-size:0.8rem; color:grey;'>{label}</p>", unsafe_allow_html=True)
             col.markdown(f"<h3 style='margin:0;'>{int(current)} <span style='font-size:0.8rem; color:grey;'>/ {int(target)}{unit}</span></h3>", unsafe_allow_html=True)
@@ -445,7 +445,6 @@ def render_nutrition():
                         """
                         response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
                         data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-                        
                         st.session_state.ai_text_result = {
                             "yemek": data.get("yemek_adi", text_input),
                             "cal": int(data.get("tahmini_toplam_kalori", 0)),
