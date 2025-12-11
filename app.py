@@ -30,26 +30,36 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- ANALİZ FONKSİYONLARI (YENİ) ---
+# --- ANALİZ FONKSİYONLARI (GÜÇLENDİRİLDİ) ---
 def get_money_stats():
-    """Money sekmesinden Günlük ve Aylık toplamları çeker."""
+    """Money sekmesinden Günlük ve Aylık toplamları çeker. Hata korumalı."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet("Money")
         data = sheet.get_all_records()
-        if not data: return 0, 0, 0, 0 # Veri yoksa sıfır dön
+        
+        if not data: return 0, 0, 0 
 
         df = pd.DataFrame(data)
-        # Tarih sütununu datetime objesine çevir
-        df["Tarih"] = pd.to_datetime(df["Tarih"])
         
+        # Sütun kontrolü (Eğer sütun adı yanlışsa hata vermesin)
+        if "Tarih" not in df.columns or "Tutar" not in df.columns:
+            return 0, 0, 0
+
+        # KRİTİK DÜZELTME: errors='coerce' ile bozuk tarihleri NaT (Not a Time) yapıyoruz
+        df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
+        # Tarihi okunamayan satırları sil
+        df = df.dropna(subset=["Tarih"])
+        
+        # Tutar sütununu sayıya çevir (Virgül/Nokta hatası varsa düzelt)
+        df["Tutar"] = pd.to_numeric(df["Tutar"], errors='coerce').fillna(0)
+
         now = datetime.datetime.now()
         today = now.date()
         this_month = now.month
         this_year = now.year
 
         # GÜNLÜK FİLTRE
-        # dt.date diyerek saat bilgisini atıyoruz, sadece güne bakıyoruz
         daily_df = df[df["Tarih"].dt.date == today]
         daily_total = daily_df["Tutar"].sum()
         daily_count = len(daily_df)
@@ -61,23 +71,35 @@ def get_money_stats():
         return daily_count, daily_total, monthly_total
 
     except Exception as e:
+        # Hata olursa ekrana basma, sessizce 0 dön (App çökmesin)
+        # st.write(f"Debug Money Error: {e}") 
         return 0, 0, 0
 
 def get_nutrition_stats():
-    """Nutrition sekmesinden Günlük makro toplamlarını çeker."""
+    """Nutrition sekmesinden Günlük makro toplamlarını çeker. Hata korumalı."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet("Nutrition")
         data = sheet.get_all_records()
+        
         if not data: return 0, 0, 0, 0, 0
 
         df = pd.DataFrame(data)
-        df["Tarih"] = pd.to_datetime(df["Tarih"])
+        
+        if "Tarih" not in df.columns: return 0, 0, 0, 0, 0
+
+        # KRİTİK DÜZELTME:
+        df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
+        df = df.dropna(subset=["Tarih"])
+        
+        # Sayısal değerleri garantiye al
+        for col in ["Kalori", "Protein", "Karb", "Yağ"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         today = datetime.datetime.now().date()
         daily_df = df[df["Tarih"].dt.date == today]
         
-        # Toplamlar
         meal_count = len(daily_df)
         total_cal = daily_df["Kalori"].sum()
         total_prot = daily_df["Protein"].sum()
@@ -87,6 +109,7 @@ def get_nutrition_stats():
         return meal_count, total_cal, total_prot, total_karb, total_yag
 
     except Exception as e:
+        # st.write(f"Debug Nutrition Error: {e}")
         return 0, 0, 0, 0, 0
 
 # --- HAFIZA FONKSİYONU (GYM) ---
@@ -99,24 +122,34 @@ def get_gym_history():
         df = pd.DataFrame(data)
         if "Set No" in df.columns:
             df["Set No"] = pd.to_numeric(df["Set No"], errors='coerce').fillna(0)
+        
+        # Tarihi datetime yapıp sıralayalım
+        if "Tarih" in df.columns:
+            df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
+            df = df.dropna(subset=["Tarih"])
+        
         df = df.sort_values(by=["Tarih", "Set No"], ascending=[False, True])
         
         history = {}
-        unique_moves = df["Hareket"].unique()
-        for move in unique_moves:
-            move_logs = df[df["Hareket"] == move]
-            last_date = move_logs.iloc[0]["Tarih"]
-            last_session = move_logs[move_logs["Tarih"] == last_date]
-            sets_summary = []
-            for _, row in last_session.iterrows():
-                try:
-                    s_no = int(row['Set No'])
-                    kg = row['Ağırlık']
-                    rep = row['Tekrar']
-                    sets_summary.append(f"S{s_no}: **{kg}**x{rep}")
-                except: continue
-            formatted_sets = "  |  ".join(sets_summary)
-            history[move] = {"tarih": last_date, "ozet": formatted_sets, "not": last_session.iloc[0]["Not"]}
+        if "Hareket" in df.columns:
+            unique_moves = df["Hareket"].unique()
+            for move in unique_moves:
+                move_logs = df[df["Hareket"] == move]
+                last_date = move_logs.iloc[0]["Tarih"]
+                # Tarihi stringe çevir gösterim için
+                last_date_str = last_date.strftime("%Y-%m-%d")
+                
+                last_session = move_logs[move_logs["Tarih"] == last_date]
+                sets_summary = []
+                for _, row in last_session.iterrows():
+                    try:
+                        s_no = int(row['Set No'])
+                        kg = row['Ağırlık']
+                        rep = row['Tekrar']
+                        sets_summary.append(f"S{s_no}: **{kg}**x{rep}")
+                    except: continue
+                formatted_sets = "  |  ".join(sets_summary)
+                history[move] = {"tarih": last_date_str, "ozet": formatted_sets, "not": last_session.iloc[0]["Not"]}
         return history
     except: return {}
 
@@ -288,7 +321,7 @@ def render_sport():
             else: st.warning("Boş kayıt girilemez.")
 
 # ==========================================
-# 💸 MONEY MODÜLÜ (CANLI SKOR)
+# 💸 MONEY MODÜLÜ (GÜVENLİ)
 # ==========================================
 def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -297,7 +330,6 @@ def render_money():
     # --- DASHBOARD: CANLI TOPLAMLAR ---
     count, daily_total, monthly_total = get_money_stats()
     
-    # Güzel görünsün diye 3 kolonlu metrik
     m1, m2, m3 = st.columns(3)
     m1.metric("Bugün (Adet)", f"{count} İşlem")
     m2.metric("Bugün (Tutar)", f"{daily_total:,.2f} ₺")
@@ -323,12 +355,12 @@ def render_money():
                     if save_to_sheet("Money", veri):
                         st.success(f"✅ Kaydedildi: {tutar} TL")
                         if durtusel: st.toast("Dürtüsel harcama loglandı.", icon="⚠️")
-                        # Kayıttan sonra sayfayı yenile ki üstteki sayaç güncellensin
+                        # Hata olmaması için rerun'ı kapatabiliriz veya açık bırakabiliriz
                         # st.rerun() 
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ (CANLI SKOR)
+# 🥗 NUTRITION MODÜLÜ (GÜVENLİ)
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
