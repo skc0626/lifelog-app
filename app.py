@@ -3,21 +3,61 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 
-# --- GÜVENLİK ---
+# --- GÜVENLİK VE BAĞLANTILAR ---
 try:
+    # 1. Gemini API Key
     API_KEY = st.secrets["GOOGLE_API_KEY"]
+    
+    # 2. Google Sheets Service Account
+    # Secrets'tan dictionary olarak çekiyoruz
+    gcp_secrets = st.secrets["gcp_service_account"]
 except:
-    st.error("⚠️ API Key bulunamadı. Lütfen Streamlit Secrets ayarlarını kontrol et.")
+    st.error("⚠️ Ayarlar eksik! API Key veya Google Cloud JSON verisi Secrets'ta yok.")
     st.stop()
 
-# Model Ayarları
+# Model Başlat
 MODEL_ID = "gemini-2.5-flash" 
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
+
+# --- VERİTABANI FONKSİYONLARI ---
+# Cache kullanarak her işlemde tekrar tekrar bağlanmayı engelliyoruz
+@st.cache_resource
+def get_google_sheet_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(gcp_secrets, scope)
+    client = gspread.authorize(creds)
+    return client
+
+def save_to_sheet(tab_name, row_data):
+    """Tek bir satır veri eklemek için (Money, Nutrition)"""
+    try:
+        client = get_google_sheet_client()
+        sheet = client.open("LifeLog_DB") # Senin oluşturduğun tablo adı
+        worksheet = sheet.worksheet(tab_name)
+        worksheet.append_row(row_data)
+        return True
+    except Exception as e:
+        st.error(f"Veritabanı Hatası: {e}")
+        return False
+
+def save_batch_to_sheet(tab_name, rows_data):
+    """Çoklu satır eklemek için (Gym - Tüm antrenmanı tek seferde basar)"""
+    try:
+        client = get_google_sheet_client()
+        sheet = client.open("LifeLog_DB")
+        worksheet = sheet.worksheet(tab_name)
+        worksheet.append_rows(rows_data) # append_rowS (çoğul)
+        return True
+    except Exception as e:
+        st.error(f"Veritabanı Hatası: {e}")
+        return False
 
 # --- ANTRENMAN PROGRAMI ---
 ANTRENMAN_PROGRAMI = {
@@ -68,7 +108,6 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = "home"
 if "camera_active" not in st.session_state:
     st.session_state.camera_active = False
-# AI Sonucunu tutmak için hafıza
 if "ai_nutrition_result" not in st.session_state:
     st.session_state.ai_nutrition_result = None
 
@@ -76,12 +115,11 @@ if "ai_nutrition_result" not in st.session_state:
 def navigate_to(page):
     st.session_state.current_page = page
     st.session_state.camera_active = False
-    # Sayfa değişirse analiz sonucunu sıfırla ki eski veri gelmesin
     st.session_state.ai_nutrition_result = None
 
 def open_camera():
     st.session_state.camera_active = True
-    st.session_state.ai_nutrition_result = None # Kamera açılınca eski sonucu sil
+    st.session_state.ai_nutrition_result = None 
 
 def close_camera():
     st.session_state.camera_active = False
@@ -106,7 +144,7 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ
+# 🏋️‍♂️ SPOR MODÜLÜ (DATABASE ENTEGRE)
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -114,7 +152,6 @@ def render_sport():
 
     program_listesi = list(ANTRENMAN_PROGRAMI.keys())
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
-
     st.divider()
     
     with st.form("gym_form"):
@@ -134,19 +171,44 @@ def render_sport():
                     if set_num <= set_sayisi:
                         with cols[j]:
                             st.markdown(f"**Set {set_num}**")
+                            # Key'ler unique olmalı ki veriyi sonra çekebilelim
                             st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
                             st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
             st.markdown("---") 
 
-        st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
+        notlar = st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
         
+        # KAYDETME İŞLEMİ
         if st.form_submit_button("Antrenmanı Bitir", use_container_width=True, type="primary"):
-            st.balloons()
-            st.success(f"Tebrikler şef! {secilen_program} tamamlandı. 💪")
-            st.toast("Veriler sisteme işlendi (Demo)")
+            toplanacak_veri = []
+            tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            
+            # Formdaki tüm verileri tara
+            for hareket_veri in hareketler:
+                h_adi = hareket_veri["ad"]
+                h_set = hareket_veri["set"]
+                
+                for s in range(1, h_set + 1):
+                    # Session state'ten değerleri çek
+                    kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
+                    rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
+                    
+                    # Eğer ikisi de boş değilse listeye ekle
+                    if kg_val and rep_val:
+                        # [Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not]
+                        satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
+                        toplanacak_veri.append(satir)
+            
+            if toplanacak_veri:
+                with st.spinner("Buluta yazılıyor..."):
+                    if save_batch_to_sheet("Gym", toplanacak_veri):
+                        st.balloons()
+                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi!")
+            else:
+                st.warning("Hiçbir set girmedin şef, boş kağıt mı veriyorsun?")
 
 # ==========================================
-# 💸 MONEY MODÜLÜ
+# 💸 MONEY MODÜLÜ (DATABASE ENTEGRE)
 # ==========================================
 def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -157,17 +219,24 @@ def render_money():
         with c1:
             kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
         with c2:
-            st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
-        st.text_input("Açıklama", placeholder="Ne aldın?")
+            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
+        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
         durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
+        
         if st.form_submit_button("Kaydet", use_container_width=True, type="primary"):
             if tutar > 0:
-                st.success(f"Kaydedildi: {tutar} TL - {kategori}")
-                if durtusel: st.toast("Dürtüsel harcama not edildi 📝", icon="⚠️")
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                # [Tarih, Tutar, Kategori, Ödeme, Açıklama, Dürtüsel]
+                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
+                
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Money", veri):
+                        st.success(f"✅ Kaydedildi: {tutar} TL")
+                        if durtusel: st.toast("Dürtüsel harcama loglandı.", icon="⚠️")
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ (Güncellendi: Kaydet Butonu)
+# 🥗 NUTRITION MODÜLÜ (DATABASE ENTEGRE)
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -196,7 +265,6 @@ def render_nutrition():
             st.divider()
             st.image(image, width=300)
             
-            # Hesapla Butonu (Sonucu Hafızaya Yazar)
             if st.button("Hesapla (AI)", type="primary", use_container_width=True):
                 with st.spinner("Analiz..."):
                     try:
@@ -216,13 +284,11 @@ def render_nutrition():
                             final_cal = (final_p*4)+(final_k*4)+(final_y*9)
                         else: final_p, final_k, final_y, final_cal = 0,0,0,0
                         
-                        # SONUCU STATE'E KAYDET
                         st.session_state.ai_nutrition_result = {
                             "yemek": yemek, "cal": final_cal, "p": final_p, "k": final_k, "y": final_y
                         }
                     except Exception as e: st.error(f"Hata: {e}")
 
-            # EĞER SONUÇ VARSA GÖSTER VE KAYDET BUTONU KOY
             if st.session_state.ai_nutrition_result:
                 res = st.session_state.ai_nutrition_result
                 st.success(f"Analiz: {res['yemek']}")
@@ -232,12 +298,16 @@ def render_nutrition():
                 c3.metric("Karb", f"{res['k']}g")
                 c4.metric("Yağ", f"{res['y']}g")
                 
-                # İŞTE BURASI: AYRI KAYDET BUTONU
                 if st.button("💾 Öğünü Kaydet", use_container_width=True):
-                    st.toast(f"{res['yemek']} sisteme kaydedildi! (Demo)", icon="✅")
-                    # İsteğe bağlı: Kaydettikten sonra state'i temizle
-                    # st.session_state.ai_nutrition_result = None
-                    # st.rerun()
+                    tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    # [Tarih, Yemek Adı, Kalori, Protein, Karb, Yağ, Kaynak]
+                    veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI - " + extra_bilgi]
+                    
+                    with st.spinner("Kaydediliyor..."):
+                        if save_to_sheet("Nutrition", veri):
+                            st.toast(f"Kaydedildi!", icon="✅")
+                            st.session_state.ai_nutrition_result = None # Temizle
+                            # st.rerun() # İstersen sayfayı yenile
 
     # --- TAB 2: MANUEL ---
     with tab2:
@@ -253,8 +323,13 @@ def render_nutrition():
                 yag = st.number_input("Yağ (g)", min_value=0, step=1)
             
             if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
-                st.success(f"Kaydedildi: {yemek_adi}")
-                st.toast("Veriler sisteme işlendi (Demo)")
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                # [Tarih, Yemek Adı, Kalori, Protein, Karb, Yağ, Kaynak]
+                veri = [tarih, yemek_adi, cal, prot, karb, yag, "Manuel"]
+                
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Nutrition", veri):
+                        st.success(f"✅ Kaydedildi: {yemek_adi}")
 
 # ==========================================
 # 🚀 PRODUCTIVITY MODÜLÜ
