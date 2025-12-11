@@ -18,11 +18,12 @@ except:
     st.error("⚠️ Ayarlar eksik! Secrets kontrolü yap.")
     st.stop()
 
+# Model Başlat
 MODEL_ID = "gemini-2.5-flash" 
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
 
-# --- VERİTABANI BAĞLANTISI ---
+# --- VERİTABANI BAĞLANTISI (CACHE) ---
 @st.cache_resource
 def get_google_sheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -30,61 +31,129 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- ANALİZ FONKSİYONLARI ---
-def get_money_stats():
+# --- YARDIMCI VERİ FONKSİYONLARI ---
+
+def get_settings():
+    """Settings sekmesinden hedefleri çeker."""
+    defaults = {
+        "target_cal": 2450,
+        "target_prot": 200,
+        "target_karb": 300,
+        "target_yag": 50
+    }
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB").worksheet("Money")
+        sheet = client.open("LifeLog_DB").worksheet("Settings")
         data = sheet.get_all_records()
-        if not data: return 0, 0, 0 
-        df = pd.DataFrame(data)
-        if "Tarih" not in df.columns or "Tutar" not in df.columns: return 0, 0, 0
-        df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
-        df = df.dropna(subset=["Tarih"])
-        df["Tutar"] = pd.to_numeric(df["Tutar"], errors='coerce').fillna(0)
+        if not data: return defaults
         
-        now = datetime.datetime.now()
-        today = now.date()
-        this_month = now.month
-        this_year = now.year
+        settings = {row['Key']: row['Value'] for row in data}
+        for k, v in defaults.items():
+            if k not in settings: settings[k] = v
+        return settings
+    except: return defaults
 
-        daily_df = df[df["Tarih"].dt.date == today]
-        daily_total = daily_df["Tutar"].sum()
-        daily_count = len(daily_df)
-        monthly_df = df[(df["Tarih"].dt.month == this_month) & (df["Tarih"].dt.year == this_year)]
-        monthly_total = monthly_df["Tutar"].sum()
-        return daily_count, daily_total, monthly_total
-    except: return 0, 0, 0
-
-def get_nutrition_stats():
+def save_settings(new_settings):
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB").worksheet("Nutrition")
-        data = sheet.get_all_records()
-        if not data: return 0, 0, 0, 0, 0
-        df = pd.DataFrame(data)
-        if "Tarih" not in df.columns: return 0, 0, 0, 0, 0
-        df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
-        df = df.dropna(subset=["Tarih"])
-        for col in ["Kalori", "Protein", "Karb", "Yağ"]:
-            if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        today = datetime.datetime.now().date()
-        daily_df = df[df["Tarih"].dt.date == today]
-        return len(daily_df), daily_df["Kalori"].sum(), daily_df["Protein"].sum(), daily_df["Karb"].sum(), daily_df["Yağ"].sum()
-    except: return 0, 0, 0, 0, 0
+        sheet = client.open("LifeLog_DB").worksheet("Settings")
+        sheet.clear()
+        sheet.append_row(["Key", "Value"])
+        for k, v in new_settings.items():
+            sheet.append_row([k, v])
+        return True
+    except Exception as e:
+        st.error(f"Hata: {e}")
+        return False
+
+def get_dashboard_data():
+    """Dashboard ve Nutrition için özet verileri çeker."""
+    client = get_google_sheet_client()
+    try: db = client.open("LifeLog_DB")
+    except: return {}
+    
+    stats = {}
+    today = datetime.datetime.now().date()
+
+    # 1. Money Stats
+    try:
+        m_sheet = db.worksheet("Money")
+        m_data = m_sheet.get_all_records()
+        if m_data:
+            df_m = pd.DataFrame(m_data)
+            if "Tarih" in df_m.columns and "Tutar" in df_m.columns:
+                df_m["Tarih"] = pd.to_datetime(df_m["Tarih"], errors='coerce')
+                df_m["Tutar"] = pd.to_numeric(df_m["Tutar"], errors='coerce').fillna(0)
+                daily_m = df_m[df_m["Tarih"].dt.date == today]
+                stats['money_count'] = len(daily_m)
+                stats['money_total'] = daily_m["Tutar"].sum()
+                
+                # Aylık Toplam (Money Modülü için lazım)
+                this_month = today.month
+                this_year = today.year
+                monthly_m = df_m[(df_m["Tarih"].dt.month == this_month) & (df_m["Tarih"].dt.year == this_year)]
+                stats['money_month'] = monthly_m["Tutar"].sum()
+            else:
+                stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
+        else:
+            stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
+    except: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
+
+    # 2. Nutrition Stats
+    try:
+        n_sheet = db.worksheet("Nutrition")
+        n_data = n_sheet.get_all_records()
+        if n_data:
+            df_n = pd.DataFrame(n_data)
+            if "Tarih" in df_n.columns:
+                df_n["Tarih"] = pd.to_datetime(df_n["Tarih"], errors='coerce')
+                daily_n = df_n[df_n["Tarih"].dt.date == today]
+                
+                for col in ["Kalori", "Protein", "Karb", "Yağ"]:
+                     if col in df_n.columns: daily_n[col] = pd.to_numeric(daily_n[col], errors='coerce').fillna(0)
+                
+                stats['nut_count'] = len(daily_n)
+                stats['cal'] = daily_n["Kalori"].sum() if not daily_n.empty else 0
+                stats['prot'] = daily_n["Protein"].sum() if not daily_n.empty else 0
+                stats['karb'] = daily_n["Karb"].sum() if not daily_n.empty else 0
+                stats['yag'] = daily_n["Yağ"].sum() if not daily_n.empty else 0
+            else:
+                 stats['nut_count'], stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0,0
+        else:
+            stats['nut_count'], stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0,0
+    except: stats['nut_count'], stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0,0
+
+    # 3. Gym Stats (Son Antrenmanlar)
+    try:
+        g_sheet = db.worksheet("Gym")
+        g_data = g_sheet.get_all_records()
+        if g_data:
+            df_g = pd.DataFrame(g_data)
+            if "Tarih" in df_g.columns and "Program" in df_g.columns:
+                df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce')
+                df_g = df_g.sort_values(by="Tarih", ascending=False)
+                unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
+                stats['last_workouts'] = unique_sessions['Program'].tolist()
+            else: stats['last_workouts'] = []
+        else: stats['last_workouts'] = []
+    except: stats['last_workouts'] = []
+    
+    return stats
 
 def get_gym_history():
+    """Spor geçmişini çeker ve formatlar."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet("Gym")
         data = sheet.get_all_records()
         if not data: return {}
         df = pd.DataFrame(data)
+        
         if "Set No" in df.columns: df["Set No"] = pd.to_numeric(df["Set No"], errors='coerce').fillna(0)
         if "Tarih" in df.columns:
             df["Tarih"] = pd.to_datetime(df["Tarih"], errors='coerce')
             df = df.dropna(subset=["Tarih"])
+        
         df = df.sort_values(by=["Tarih", "Set No"], ascending=[False, True])
         
         history = {}
@@ -94,6 +163,7 @@ def get_gym_history():
                 move_logs = df[df["Hareket"] == move]
                 last_date = move_logs.iloc[0]["Tarih"]
                 last_date_str = last_date.strftime("%Y-%m-%d")
+                
                 last_session = move_logs[move_logs["Tarih"] == last_date]
                 sets_summary = []
                 for _, row in last_session.iterrows():
@@ -179,8 +249,10 @@ if "camera_active" not in st.session_state:
     st.session_state.camera_active = False
 if "ai_nutrition_result" not in st.session_state:
     st.session_state.ai_nutrition_result = None
-if "ai_text_result" not in st.session_state: # YENİ: Metin analizi için state
+if "ai_text_result" not in st.session_state:
     st.session_state.ai_text_result = None
+if "user_settings" not in st.session_state:
+    st.session_state.user_settings = get_settings()
 
 def navigate_to(page):
     st.session_state.current_page = page
@@ -196,22 +268,298 @@ def close_camera():
     st.session_state.camera_active = False
 
 # ==========================================
-# 🏠 ANA MENÜ
+# 🏠 ANA MENÜ (DASHBOARD)
 # ==========================================
 def render_home():
     st.title("🌱 LifeLog")
-    st.caption(f"Bugün: {datetime.date.today().strftime('%d.%m.%Y')}")
+    st.caption(f"Tarih: {datetime.date.today().strftime('%d.%m.%Y')}")
+    
+    # Verileri Çek
+    stats = get_dashboard_data()
+    targets = st.session_state.user_settings
+
+    # 1. Satır: Money & Nutrition Özeti
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**💸 Finans (Bugün)**")
+        count = stats.get('money_count', 0)
+        total = stats.get('money_total', 0)
+        st.write(f"{count} işlem | **{total:.2f} ₺**")
+    
+    with c2:
+        st.markdown(f"**🥗 Beslenme (Bugün)**")
+        current_cal = stats.get('cal', 0)
+        target_cal = int(targets.get('target_cal', 2450))
+        pct = int((current_cal / target_cal) * 100) if target_cal > 0 else 0
+        st.write(f"{current_cal} / {target_cal} kcal (**%{pct}**)")
+    
+    st.divider()
+    
+    # 2. Satır: Spor Geçmişi
+    st.markdown("**🏋️‍♂️ Son Antrenmanlar**")
+    workouts = stats.get('last_workouts', [])
+    if workouts:
+        history_str = "  ➡️  ".join(workouts)
+        st.info(history_str)
+    else:
+        st.caption("Henüz antrenman kaydı yok.")
+        
+    st.divider()
+
     st.write("### Modüller")
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Money", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
+        st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True)
     with col2:
         st.button("🥗 Nutrition", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
+        st.button("🏋️‍♂️ Spor (Gym)", on_click=navigate_to, args=("sport",), use_container_width=True)
+            
     col3, col4 = st.columns(2)
     with col3:
-        st.button("🏋️‍♂️ Spor (Gym)", on_click=navigate_to, args=("sport",), use_container_width=True)
-    with col4:
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
+    with col4:
+        st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True)
+
+# ==========================================
+# ⚙️ SETTINGS MODÜLÜ
+# ==========================================
+def render_settings():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("⚙️ Ayarlar")
+    st.write("Beslenme hedeflerini güncelle.")
+    
+    current = st.session_state.user_settings
+    
+    with st.form("settings_form"):
+        st.subheader("Hedefler")
+        t_cal = st.number_input("Kalori", value=int(current.get('target_cal', 2450)), step=50)
+        t_prot = st.number_input("Protein (g)", value=int(current.get('target_prot', 200)), step=5)
+        t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
+        t_yag = st.number_input("Yağ (g)", value=int(current.get('target_yag', 50)), step=5)
+        
+        if st.form_submit_button("Ayarları Kaydet", type="primary", use_container_width=True):
+            new_settings = {
+                "target_cal": t_cal,
+                "target_prot": t_prot,
+                "target_karb": t_karb,
+                "target_yag": t_yag
+            }
+            with st.spinner("Kaydediliyor..."):
+                if save_settings(new_settings):
+                    st.session_state.user_settings = new_settings
+                    st.success("Ayarlar güncellendi! ✅")
+
+# ==========================================
+# ⚖️ KİLO MODÜLÜ
+# ==========================================
+def render_weight():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("⚖️ Kilo Takibi")
+    
+    with st.form("weight_form"):
+        kilo = st.number_input("Güncel Kilo (kg)", min_value=0.0, step=0.1, format="%.1f")
+        durum = st.radio("Durum", ["WC Öncesi", "WC Sonrası"], horizontal=True)
+        
+        if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+            if kilo > 0:
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, kilo, durum]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Weight", veri):
+                        st.success(f"✅ {kilo} kg kaydedildi.")
+            else:
+                st.warning("Kilo girmeyi unuttun.")
+
+# ==========================================
+# 🥗 NUTRITION MODÜLÜ
+# ==========================================
+def render_nutrition():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🥗 Beslenme Takibi")
+
+    # Stats ve Hedefleri Al
+    targets = st.session_state.user_settings
+    stats = get_dashboard_data()
+    
+    # Metrikler
+    c1, c2, c3, c4 = st.columns(4)
+    # get_dashboard_data fonksiyonunda değerler yoksa 0 döner, hata almamak için .get kullanalım
+    curr_cal = stats.get('cal', 0)
+    curr_prot = stats.get('prot', 0)
+    curr_karb = stats.get('karb', 0)
+    curr_yag = stats.get('yag', 0)
+
+    c1.metric("Kalori", f"{curr_cal} / {targets['target_cal']}")
+    c2.metric("Protein", f"{curr_prot} / {targets['target_prot']} g")
+    c3.metric("Karb", f"{curr_karb} / {targets['target_karb']} g")
+    c4.metric("Yağ", f"{curr_yag} / {targets['target_yag']} g")
+    
+    st.divider()
+
+    tab1, tab2, tab3 = st.tabs(["📸 Fotoğraf", "✍️ Yazarak Ekle", "📝 Manuel"])
+    
+    # TAB 1: FOTO
+    with tab1:
+        img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
+        st.write("veya")
+        if not st.session_state.camera_active:
+            st.button("📸 Kamerayı Başlat", on_click=open_camera, use_container_width=True)
+            camera_file = None
+        else:
+            st.button("❌ Kapat", on_click=close_camera, type="secondary", use_container_width=True)
+            camera_file = st.camera_input("Çek")
+        
+        extra_bilgi = st.text_input("Ek Bilgi", placeholder="Örn: Yağsız...")
+        
+        image = None
+        if camera_file: image = Image.open(camera_file)
+        elif img_file: image = Image.open(img_file)
+        
+        if image:
+            st.divider()
+            st.image(image, width=300)
+            
+            if st.button("Hesapla (AI)", type="primary", use_container_width=True):
+                with st.spinner("Analiz..."):
+                    try:
+                        prompt = f"""
+                        GÖREV: Bu yemek fotoğrafını analiz et. NOT: {extra_bilgi}
+                        TALİMAT: Protein kaynaklarının ÇİĞ ağırlığını baz al.
+                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "X", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
+                        """
+                        response = model.generate_content([prompt, image], generation_config={"response_mime_type": "application/json"})
+                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+                        ai_cal = int(data.get("tahmini_toplam_kalori", 0))
+                        p, k, y = float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
+                        yemek = data.get("yemek_adi", "Bilinmeyen")
+                        
+                        math_cal = (p*4)+(k*4)+(y*9)
+                        if math_cal > 0:
+                            ratio = ((ai_cal+math_cal)/2)/math_cal
+                            final_p, final_k, final_y = int(p*ratio), int(k*ratio), int(y*ratio)
+                            final_cal = (final_p*4)+(final_k*4)+(final_y*9)
+                        else: final_p, final_k, final_y, final_cal = 0,0,0,0
+                        
+                        st.session_state.ai_nutrition_result = {
+                            "yemek": yemek, "cal": final_cal, "p": final_p, "k": final_k, "y": final_y
+                        }
+                    except Exception as e: st.error(f"Hata: {e}")
+
+            if st.session_state.ai_nutrition_result:
+                res = st.session_state.ai_nutrition_result
+                st.success(f"Analiz: {res['yemek']}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Kalori", res['cal'])
+                c2.metric("Pro", f"{res['p']}g")
+                c3.metric("Karb", f"{res['k']}g")
+                c4.metric("Yağ", f"{res['y']}g")
+                
+                if st.button("💾 Öğünü Kaydet", key="btn_save_photo", use_container_width=True):
+                    tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Foto"]
+                    with st.spinner("Kaydediliyor..."):
+                        if save_to_sheet("Nutrition", veri):
+                            st.toast(f"Kaydedildi!", icon="✅")
+                            st.session_state.ai_nutrition_result = None
+
+    # TAB 2: TEXT
+    with tab2:
+        st.write("Yediklerini yaz, Gemini analiz etsin.")
+        text_input = st.text_area("Ne yedin?", placeholder="Örn: 50g yulaf, 1 muz")
+        
+        if st.button("Metni Analiz Et", type="primary", use_container_width=True):
+            if text_input:
+                with st.spinner("Metin işleniyor..."):
+                    try:
+                        prompt = f"""
+                        GÖREV: Verilen metindeki yiyeceklerin toplam besin değerini hesapla: "{text_input}"
+                        TALİMAT: Miktar belirtilmemişse standart porsiyon varsay.
+                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "Özet İsim", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
+                        """
+                        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+                        
+                        ai_cal = int(data.get("tahmini_toplam_kalori", 0))
+                        p, k, y = float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
+                        yemek = data.get("yemek_adi", text_input)
+                        
+                        st.session_state.ai_text_result = {
+                            "yemek": yemek, "cal": ai_cal, "p": p, "k": k, "y": y
+                        }
+                    except Exception as e: st.error(f"Hata: {e}")
+            else: st.warning("Bir şeyler yazman lazım.")
+
+        if st.session_state.ai_text_result:
+            res = st.session_state.ai_text_result
+            st.info(f"Tespit: {res['yemek']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Kalori", res['cal'])
+            c2.metric("Pro", f"{res['p']}g")
+            c3.metric("Karb", f"{res['k']}g")
+            c4.metric("Yağ", f"{res['y']}g")
+            
+            if st.button("💾 Kaydet (Metin)", key="btn_save_text", use_container_width=True):
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Metin"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Nutrition", veri):
+                        st.toast(f"Kaydedildi!", icon="✅")
+                        st.session_state.ai_text_result = None
+
+    # TAB 3: MANUEL
+    with tab3:
+        with st.form("manuel_nutrition_form"):
+            yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
+            c1, c2 = st.columns(2)
+            with c1:
+                cal = st.number_input("Kalori", step=10)
+                prot = st.number_input("Protein", step=1)
+            with c2:
+                karb = st.number_input("Karb", step=1)
+                yag = st.number_input("Yağ", step=1)
+            
+            if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, yemek_adi, cal, prot, karb, yag, "Manuel"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Nutrition", veri):
+                        st.success(f"✅ Kaydedildi: {yemek_adi}")
+
+# ==========================================
+# 💸 MONEY MODÜLÜ
+# ==========================================
+def render_money():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("💸 Finans Takibi")
+    
+    stats = get_dashboard_data()
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Bugün (Adet)", f"{stats.get('money_count', 0)} İşlem")
+    m2.metric("Bugün (Tutar)", f"{stats.get('money_total', 0):,.2f} ₺")
+    m3.metric("Bu Ay (Tutar)", f"{stats.get('money_month', 0):,.2f} ₺")
+    
+    st.divider()
+
+    with st.form("harcama_formu", clear_on_submit=True):
+        tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
+        c1, c2 = st.columns(2)
+        with c1:
+            kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
+        with c2:
+            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
+        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
+        durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
+        
+        if st.form_submit_button("Kaydet", use_container_width=True, type="primary"):
+            if tutar > 0:
+                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Money", veri):
+                        st.success(f"✅ Kaydedildi: {tutar} TL")
+                        if durtusel: st.toast("Dürtüsel harcama loglandı.", icon="⚠️")
+            else: st.warning("Tutar gir.")
 
 # ==========================================
 # 🏋️‍♂️ SPOR MODÜLÜ
@@ -240,8 +588,7 @@ def render_sport():
                 h = history_data[hareket_adi]
                 st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
                 if h['not']: st.caption(f"📝 Not: {h['not']}")
-            else:
-                st.caption("Bu hareket için henüz kayıt yok.")
+            else: st.caption("Bu hareket için henüz kayıt yok.")
 
             if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
             
@@ -279,187 +626,6 @@ def render_sport():
             else: st.warning("Boş kayıt girilemez.")
 
 # ==========================================
-# 💸 MONEY MODÜLÜ
-# ==========================================
-def render_money():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("💸 Finans Takibi")
-    
-    count, daily_total, monthly_total = get_money_stats()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Bugün (Adet)", f"{count} İşlem")
-    m2.metric("Bugün (Tutar)", f"{daily_total:,.2f} ₺")
-    m3.metric("Bu Ay (Tutar)", f"{monthly_total:,.2f} ₺")
-    st.divider()
-
-    with st.form("harcama_formu", clear_on_submit=True):
-        tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
-        c1, c2 = st.columns(2)
-        with c1:
-            kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
-        with c2:
-            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
-        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
-        durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
-        
-        if st.form_submit_button("Kaydet", use_container_width=True, type="primary"):
-            if tutar > 0:
-                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
-                with st.spinner("Kaydediliyor..."):
-                    if save_to_sheet("Money", veri):
-                        st.success(f"✅ Kaydedildi: {tutar} TL")
-                        if durtusel: st.toast("Dürtüsel harcama loglandı.", icon="⚠️")
-            else: st.warning("Tutar gir.")
-
-# ==========================================
-# 🥗 NUTRITION MODÜLÜ
-# ==========================================
-def render_nutrition():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🥗 Beslenme Takibi")
-
-    meal_count, total_cal, total_prot, total_karb, total_yag = get_nutrition_stats()
-    st.caption(f"Bugün şu ana kadar {meal_count} öğün yedin.")
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric("Toplam Kalori", f"{total_cal} kcal")
-    d2.metric("Protein", f"{total_prot} g")
-    d3.metric("Karb", f"{total_karb} g")
-    d4.metric("Yağ", f"{total_yag} g")
-    st.divider()
-
-    # YENİ: 3 SEKME (Tab3 eklendi)
-    tab1, tab2, tab3 = st.tabs(["📸 Fotoğraf", "✍️ Yazarak Ekle", "📝 Manuel"])
-
-    # --- TAB 1: AI FOTOĞRAF ---
-    with tab1:
-        img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
-        st.write("veya")
-        if not st.session_state.camera_active:
-            st.button("📸 Kamerayı Başlat", on_click=open_camera, use_container_width=True)
-            camera_file = None
-        else:
-            st.button("❌ Kapat", on_click=close_camera, type="secondary", use_container_width=True)
-            camera_file = st.camera_input("Çek")
-        
-        extra_bilgi = st.text_input("Ek Bilgi", placeholder="Örn: Yağsız...")
-        
-        image = None
-        if camera_file: image = Image.open(camera_file)
-        elif img_file: image = Image.open(img_file)
-        
-        if image:
-            st.divider()
-            st.image(image, width=300)
-            
-            if st.button("Hesapla (AI)", type="primary", use_container_width=True):
-                with st.spinner("Analiz..."):
-                    try:
-                        prompt = f"""
-                        GÖREV: Bu yemek fotoğrafını analiz et. NOT: {extra_bilgi}
-                        TALİMAT: Protein kaynaklarının ÇİĞ ağırlığını baz al.
-                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "X", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
-                        """
-                        response = model.generate_content([prompt, image], generation_config={"response_mime_type": "application/json"})
-                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-                        ai_cal, p, k, y = int(data.get("tahmini_toplam_kalori", 0)), float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
-                        yemek = data.get("yemek_adi", "Bilinmeyen")
-                        math_cal = (p*4)+(k*4)+(y*9)
-                        if math_cal > 0:
-                            ratio = ((ai_cal+math_cal)/2)/math_cal
-                            final_p, final_k, final_y = int(p*ratio), int(k*ratio), int(y*ratio)
-                            final_cal = (final_p*4)+(final_k*4)+(final_y*9)
-                        else: final_p, final_k, final_y, final_cal = 0,0,0,0
-                        
-                        st.session_state.ai_nutrition_result = {
-                            "yemek": yemek, "cal": final_cal, "p": final_p, "k": final_k, "y": final_y
-                        }
-                    except Exception as e: st.error(f"Hata: {e}")
-
-            if st.session_state.ai_nutrition_result:
-                res = st.session_state.ai_nutrition_result
-                st.success(f"Analiz: {res['yemek']}")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Kalori", res['cal'])
-                c2.metric("Pro", f"{res['p']}g")
-                c3.metric("Karb", f"{res['k']}g")
-                c4.metric("Yağ", f"{res['y']}g")
-                
-                if st.button("💾 Öğünü Kaydet", key="btn_save_photo", use_container_width=True):
-                    tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Foto"]
-                    with st.spinner("Kaydediliyor..."):
-                        if save_to_sheet("Nutrition", veri):
-                            st.toast(f"Kaydedildi!", icon="✅")
-                            st.session_state.ai_nutrition_result = None
-
-    # --- TAB 2: YAZARAK EKLE (YENİ) ---
-    with tab2:
-        st.write("Yediklerini yaz, Gemini analiz etsin.")
-        text_input = st.text_area("Ne yedin?", placeholder="Örn: 50g yulaf, 1 muz, 200ml süt")
-        
-        if st.button("Metni Analiz Et", type="primary", use_container_width=True):
-            if text_input:
-                with st.spinner("Metin işleniyor..."):
-                    try:
-                        prompt = f"""
-                        GÖREV: Verilen metindeki yiyeceklerin toplam besin değerini hesapla: "{text_input}"
-                        TALİMAT: Miktar belirtilmemişse standart porsiyon varsay.
-                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "Özet İsim", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
-                        """
-                        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-                        
-                        ai_cal = int(data.get("tahmini_toplam_kalori", 0))
-                        p, k, y = float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
-                        yemek = data.get("yemek_adi", text_input)
-                        
-                        st.session_state.ai_text_result = {
-                            "yemek": yemek, "cal": ai_cal, "p": p, "k": k, "y": y
-                        }
-                    except Exception as e: st.error(f"Hata: {e}")
-            else:
-                st.warning("Bir şeyler yazman lazım şef.")
-
-        # Metin Sonucu Gösterimi ve Kayıt
-        if st.session_state.ai_text_result:
-            res = st.session_state.ai_text_result
-            st.info(f"Tespit: {res['yemek']}")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Kalori", res['cal'])
-            c2.metric("Pro", f"{res['p']}g")
-            c3.metric("Karb", f"{res['k']}g")
-            c4.metric("Yağ", f"{res['y']}g")
-            
-            if st.button("💾 Kaydet (Metin)", key="btn_save_text", use_container_width=True):
-                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Metin"]
-                with st.spinner("Kaydediliyor..."):
-                    if save_to_sheet("Nutrition", veri):
-                        st.toast(f"Kaydedildi!", icon="✅")
-                        st.session_state.ai_text_result = None
-
-    # --- TAB 3: MANUEL ---
-    with tab3:
-        st.info("Shake, paketli gıda veya makrosunu bildiğin öğünler için.")
-        with st.form("manuel_nutrition_form"):
-            yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
-            c1, c2 = st.columns(2)
-            with c1:
-                cal = st.number_input("Kalori (kcal)", min_value=0, step=10)
-                prot = st.number_input("Protein (g)", min_value=0, step=1)
-            with c2:
-                karb = st.number_input("Karb (g)", min_value=0, step=1)
-                yag = st.number_input("Yağ (g)", min_value=0, step=1)
-            
-            if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
-                tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                veri = [tarih, yemek_adi, cal, prot, karb, yag, "Manuel"]
-                with st.spinner("Kaydediliyor..."):
-                    if save_to_sheet("Nutrition", veri):
-                        st.success(f"✅ Kaydedildi: {yemek_adi}")
-
-# ==========================================
 # 🚀 PRODUCTIVITY MODÜLÜ
 # ==========================================
 def render_productivity():
@@ -474,4 +640,6 @@ if st.session_state.current_page == "home": render_home()
 elif st.session_state.current_page == "money": render_money()
 elif st.session_state.current_page == "nutrition": render_nutrition()
 elif st.session_state.current_page == "sport": render_sport()
+elif st.session_state.current_page == "weight": render_weight()
+elif st.session_state.current_page == "settings": render_settings()
 elif st.session_state.current_page == "productivity": render_productivity()
