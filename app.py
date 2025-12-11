@@ -68,14 +68,21 @@ if "current_page" not in st.session_state:
     st.session_state.current_page = "home"
 if "camera_active" not in st.session_state:
     st.session_state.camera_active = False
+# AI Sonucunu tutmak için hafıza
+if "ai_nutrition_result" not in st.session_state:
+    st.session_state.ai_nutrition_result = None
 
 # --- NAVİGASYON ---
 def navigate_to(page):
     st.session_state.current_page = page
     st.session_state.camera_active = False
+    # Sayfa değişirse analiz sonucunu sıfırla ki eski veri gelmesin
+    st.session_state.ai_nutrition_result = None
 
 def open_camera():
     st.session_state.camera_active = True
+    st.session_state.ai_nutrition_result = None # Kamera açılınca eski sonucu sil
+
 def close_camera():
     st.session_state.camera_active = False
 
@@ -160,16 +167,15 @@ def render_money():
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ (Gelişmiş: Foto + Manuel)
+# 🥗 NUTRITION MODÜLÜ (Güncellendi: Kaydet Butonu)
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🥗 Beslenme Takibi")
 
-    # Sekmeli Yapı
     tab1, tab2 = st.tabs(["📸 Fotoğraf Analizi", "📝 Manuel Giriş"])
 
-    # --- TAB 1: FOTOĞRAF ANALİZİ (ESKİ KOD) ---
+    # --- TAB 1: AI FOTOĞRAF ---
     with tab1:
         img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
         st.write("veya")
@@ -189,6 +195,8 @@ def render_nutrition():
         if image:
             st.divider()
             st.image(image, width=300)
+            
+            # Hesapla Butonu (Sonucu Hafızaya Yazar)
             if st.button("Hesapla (AI)", type="primary", use_container_width=True):
                 with st.spinner("Analiz..."):
                     try:
@@ -208,20 +216,34 @@ def render_nutrition():
                             final_cal = (final_p*4)+(final_k*4)+(final_y*9)
                         else: final_p, final_k, final_y, final_cal = 0,0,0,0
                         
-                        st.success(f"Analiz: {yemek}")
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric("Kalori", f"{final_cal}")
-                        c2.metric("Pro", f"{final_p}g")
-                        c3.metric("Karb", f"{final_k}g")
-                        c4.metric("Yağ", f"{final_y}g")
+                        # SONUCU STATE'E KAYDET
+                        st.session_state.ai_nutrition_result = {
+                            "yemek": yemek, "cal": final_cal, "p": final_p, "k": final_k, "y": final_y
+                        }
                     except Exception as e: st.error(f"Hata: {e}")
 
-    # --- TAB 2: MANUEL GİRİŞ (YENİ) ---
+            # EĞER SONUÇ VARSA GÖSTER VE KAYDET BUTONU KOY
+            if st.session_state.ai_nutrition_result:
+                res = st.session_state.ai_nutrition_result
+                st.success(f"Analiz: {res['yemek']}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Kalori", res['cal'])
+                c2.metric("Pro", f"{res['p']}g")
+                c3.metric("Karb", f"{res['k']}g")
+                c4.metric("Yağ", f"{res['y']}g")
+                
+                # İŞTE BURASI: AYRI KAYDET BUTONU
+                if st.button("💾 Öğünü Kaydet", use_container_width=True):
+                    st.toast(f"{res['yemek']} sisteme kaydedildi! (Demo)", icon="✅")
+                    # İsteğe bağlı: Kaydettikten sonra state'i temizle
+                    # st.session_state.ai_nutrition_result = None
+                    # st.rerun()
+
+    # --- TAB 2: MANUEL ---
     with tab2:
         st.info("Shake, paketli gıda veya makrosunu bildiğin öğünler için.")
         with st.form("manuel_nutrition_form"):
             yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
-            
             c1, c2 = st.columns(2)
             with c1:
                 cal = st.number_input("Kalori (kcal)", min_value=0, step=10)
@@ -230,15 +252,8 @@ def render_nutrition():
                 karb = st.number_input("Karb (g)", min_value=0, step=1)
                 yag = st.number_input("Yağ (g)", min_value=0, step=1)
             
-            submitted = st.form_submit_button("Kaydet", type="primary", use_container_width=True)
-            
-            if submitted:
+            if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
                 st.success(f"Kaydedildi: {yemek_adi}")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Kalori", cal)
-                c2.metric("Pro", f"{prot}g")
-                c3.metric("Karb", f"{karb}g")
-                c4.metric("Yağ", f"{yag}g")
                 st.toast("Veriler sisteme işlendi (Demo)")
 
 # ==========================================
