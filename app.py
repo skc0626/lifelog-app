@@ -30,42 +30,83 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- GÜNCELLENDİ: TÜM SETLERİ GETİREN HAFIZA ---
-def get_gym_history():
-    """Hareket bazında son antrenmandaki TÜM setleri çeker."""
+# --- ANALİZ FONKSİYONLARI (YENİ) ---
+def get_money_stats():
+    """Money sekmesinden Günlük ve Aylık toplamları çeker."""
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB")
-        worksheet = sheet.worksheet("Gym")
-        
-        data = worksheet.get_all_records()
-        if not data: return {}
-            
+        sheet = client.open("LifeLog_DB").worksheet("Money")
+        data = sheet.get_all_records()
+        if not data: return 0, 0, 0, 0 # Veri yoksa sıfır dön
+
         df = pd.DataFrame(data)
+        # Tarih sütununu datetime objesine çevir
+        df["Tarih"] = pd.to_datetime(df["Tarih"])
         
-        # Sütunların sayısal olduğundan emin olalım (Sıralama hatası olmasın)
-        # Eğer Set No boş gelirse hata vermesin diye fillna(0)
+        now = datetime.datetime.now()
+        today = now.date()
+        this_month = now.month
+        this_year = now.year
+
+        # GÜNLÜK FİLTRE
+        # dt.date diyerek saat bilgisini atıyoruz, sadece güne bakıyoruz
+        daily_df = df[df["Tarih"].dt.date == today]
+        daily_total = daily_df["Tutar"].sum()
+        daily_count = len(daily_df)
+
+        # AYLIK FİLTRE
+        monthly_df = df[(df["Tarih"].dt.month == this_month) & (df["Tarih"].dt.year == this_year)]
+        monthly_total = monthly_df["Tutar"].sum()
+        
+        return daily_count, daily_total, monthly_total
+
+    except Exception as e:
+        return 0, 0, 0
+
+def get_nutrition_stats():
+    """Nutrition sekmesinden Günlük makro toplamlarını çeker."""
+    try:
+        client = get_google_sheet_client()
+        sheet = client.open("LifeLog_DB").worksheet("Nutrition")
+        data = sheet.get_all_records()
+        if not data: return 0, 0, 0, 0, 0
+
+        df = pd.DataFrame(data)
+        df["Tarih"] = pd.to_datetime(df["Tarih"])
+        
+        today = datetime.datetime.now().date()
+        daily_df = df[df["Tarih"].dt.date == today]
+        
+        # Toplamlar
+        meal_count = len(daily_df)
+        total_cal = daily_df["Kalori"].sum()
+        total_prot = daily_df["Protein"].sum()
+        total_karb = daily_df["Karb"].sum()
+        total_yag = daily_df["Yağ"].sum()
+        
+        return meal_count, total_cal, total_prot, total_karb, total_yag
+
+    except Exception as e:
+        return 0, 0, 0, 0, 0
+
+# --- HAFIZA FONKSİYONU (GYM) ---
+def get_gym_history():
+    try:
+        client = get_google_sheet_client()
+        sheet = client.open("LifeLog_DB").worksheet("Gym")
+        data = sheet.get_all_records()
+        if not data: return {}
+        df = pd.DataFrame(data)
         if "Set No" in df.columns:
             df["Set No"] = pd.to_numeric(df["Set No"], errors='coerce').fillna(0)
-            
-        # 1. Önce Tarihe göre (En yeni en üstte), Sonra Set Numarasına göre (1,2,3..) sırala
         df = df.sort_values(by=["Tarih", "Set No"], ascending=[False, True])
         
         history = {}
         unique_moves = df["Hareket"].unique()
-        
         for move in unique_moves:
-            # Bu hareketin tüm kayıtlarını al
             move_logs = df[df["Hareket"] == move]
-            
-            # En son ne zaman yapılmış? (İlk satır en yenisi)
             last_date = move_logs.iloc[0]["Tarih"]
-            
-            # Sadece o tarihe ait kayıtları filtrele (O günkü tüm setler)
             last_session = move_logs[move_logs["Tarih"] == last_date]
-            
-            # Setleri yan yana string olarak birleştir
-            # Örn: "S1: 80x12 | S2: 80x10..."
             sets_summary = []
             for _, row in last_session.iterrows():
                 try:
@@ -73,31 +114,17 @@ def get_gym_history():
                     kg = row['Ağırlık']
                     rep = row['Tekrar']
                     sets_summary.append(f"S{s_no}: **{kg}**x{rep}")
-                except:
-                    continue
-            
+                except: continue
             formatted_sets = "  |  ".join(sets_summary)
-            
-            # Sözlüğe kaydet
-            history[move] = {
-                "tarih": last_date,
-                "ozet": formatted_sets,
-                "not": last_session.iloc[0]["Not"] # Notlar genelde aynıdır, ilkini al
-            }
-            
+            history[move] = {"tarih": last_date, "ozet": formatted_sets, "not": last_session.iloc[0]["Not"]}
         return history
-
-    except Exception as e:
-        # Hata olursa sessizce boş dön, sistemi kitleme
-        # st.error(f"Debug: {e}") 
-        return {}
+    except: return {}
 
 def save_to_sheet(tab_name, row_data):
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB")
-        worksheet = sheet.worksheet(tab_name)
-        worksheet.append_row(row_data)
+        sheet = client.open("LifeLog_DB").worksheet(tab_name)
+        sheet.append_row(row_data)
         return True
     except Exception as e:
         st.error(f"Hata: {e}")
@@ -106,9 +133,8 @@ def save_to_sheet(tab_name, row_data):
 def save_batch_to_sheet(tab_name, rows_data):
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB")
-        worksheet = sheet.worksheet(tab_name)
-        worksheet.append_rows(rows_data)
+        sheet = client.open("LifeLog_DB").worksheet(tab_name)
+        sheet.append_rows(rows_data)
         return True
     except Exception as e:
         st.error(f"Hata: {e}")
@@ -166,7 +192,6 @@ if "camera_active" not in st.session_state:
 if "ai_nutrition_result" not in st.session_state:
     st.session_state.ai_nutrition_result = None
 
-# --- NAVİGASYON ---
 def navigate_to(page):
     st.session_state.current_page = page
     st.session_state.camera_active = False
@@ -185,7 +210,6 @@ def close_camera():
 def render_home():
     st.title("🌱 LifeLog")
     st.caption(f"Bugün: {datetime.date.today().strftime('%d.%m.%Y')}")
-    
     st.write("### Modüller")
     col1, col2 = st.columns(2)
     with col1:
@@ -199,7 +223,7 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (Gelişmiş Hafıza - Çoklu Set)
+# 🏋️‍♂️ SPOR MODÜLÜ
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -209,7 +233,7 @@ def render_sport():
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
     st.divider()
 
-    with st.spinner("Geçmiş antrenman verileri taranıyor..."):
+    with st.spinner("Geçmiş yükleniyor..."):
         history_data = get_gym_history()
     
     with st.form("gym_form"):
@@ -221,15 +245,10 @@ def render_sport():
             
             st.markdown(f"### 📌 {hareket_adi}")
             
-            # --- YENİ HAFIZA GÖSTERİMİ ---
-            # Artık tüm setleri yan yana gösteriyor
             if hareket_adi in history_data:
                 h = history_data[hareket_adi]
-                # Başlık
                 st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
-                # Not varsa altına küçük yaz
-                if h['not']:
-                    st.caption(f"📝 Not: {h['not']}")
+                if h['not']: st.caption(f"📝 Not: {h['not']}")
             else:
                 st.caption("Bu hareket için henüz kayıt yok.")
 
@@ -251,7 +270,6 @@ def render_sport():
         if st.form_submit_button("Antrenmanı Bitir", use_container_width=True, type="primary"):
             toplanacak_veri = []
             tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            
             for hareket_veri in hareketler:
                 h_adi = hareket_veri["ad"]
                 h_set = hareket_veri["set"]
@@ -263,19 +281,30 @@ def render_sport():
                         toplanacak_veri.append(satir)
             
             if toplanacak_veri:
-                with st.spinner("Buluta yazılıyor..."):
+                with st.spinner("Kaydediliyor..."):
                     if save_batch_to_sheet("Gym", toplanacak_veri):
                         st.balloons()
-                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi!")
-            else:
-                st.warning("Boş antrenman kaydedilemez.")
+                        st.success(f"✅ Kaydedildi!")
+            else: st.warning("Boş kayıt girilemez.")
 
 # ==========================================
-# 💸 MONEY MODÜLÜ
+# 💸 MONEY MODÜLÜ (CANLI SKOR)
 # ==========================================
 def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("💸 Finans Takibi")
+    
+    # --- DASHBOARD: CANLI TOPLAMLAR ---
+    count, daily_total, monthly_total = get_money_stats()
+    
+    # Güzel görünsün diye 3 kolonlu metrik
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Bugün (Adet)", f"{count} İşlem")
+    m2.metric("Bugün (Tutar)", f"{daily_total:,.2f} ₺")
+    m3.metric("Bu Ay (Tutar)", f"{monthly_total:,.2f} ₺")
+    
+    st.divider()
+
     with st.form("harcama_formu", clear_on_submit=True):
         tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
         c1, c2 = st.columns(2)
@@ -294,14 +323,28 @@ def render_money():
                     if save_to_sheet("Money", veri):
                         st.success(f"✅ Kaydedildi: {tutar} TL")
                         if durtusel: st.toast("Dürtüsel harcama loglandı.", icon="⚠️")
+                        # Kayıttan sonra sayfayı yenile ki üstteki sayaç güncellensin
+                        # st.rerun() 
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ
+# 🥗 NUTRITION MODÜLÜ (CANLI SKOR)
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🥗 Beslenme Takibi")
+
+    # --- DASHBOARD: CANLI TOPLAMLAR ---
+    meal_count, total_cal, total_prot, total_karb, total_yag = get_nutrition_stats()
+    
+    st.caption(f"Bugün şu ana kadar {meal_count} öğün yedin.")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Toplam Kalori", f"{total_cal} kcal")
+    d2.metric("Protein", f"{total_prot} g")
+    d3.metric("Karb", f"{total_karb} g")
+    d4.metric("Yağ", f"{total_yag} g")
+    
+    st.divider()
 
     tab1, tab2 = st.tabs(["📸 Fotoğraf Analizi", "📝 Manuel Giriş"])
 
