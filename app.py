@@ -19,7 +19,7 @@ MODEL_ID = "gemini-2.5-flash"
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
 
-# --- ANTRENMAN PROGRAMI (SADELEŞTİRİLDİ) ---
+# --- ANTRENMAN PROGRAMI ---
 ANTRENMAN_PROGRAMI = {
     "Push 1": [
         {"ad": "Bench Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"},
@@ -99,13 +99,12 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (Sadeleştirildi)
+# 🏋️‍♂️ SPOR MODÜLÜ
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🏋️‍♂️ Antrenman Logu")
 
-    # Program Seçimi (Gün bilgisi kaldırıldı)
     program_listesi = list(ANTRENMAN_PROGRAMI.keys())
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
 
@@ -113,17 +112,14 @@ def render_sport():
     
     with st.form("gym_form"):
         hareketler = ANTRENMAN_PROGRAMI[secilen_program]
-        
         for hareket_veri in hareketler:
             hareket_adi = hareket_veri["ad"]
             set_sayisi = hareket_veri["set"]
             hedef_bilgi = hareket_veri.get("hedef", "")
             
             st.markdown(f"### 📌 {hareket_adi}")
-            if hedef_bilgi:
-                st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
+            if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
             
-            # Grid Sistemi
             for i in range(0, set_sayisi, 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -135,7 +131,7 @@ def render_sport():
                             st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
             st.markdown("---") 
 
-        st.text_area("Antrenman Notları", placeholder="Pump nasıldı? Enerjin, ağrıların vs.")
+        st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
         
         if st.form_submit_button("Antrenmanı Bitir", use_container_width=True, type="primary"):
             st.balloons()
@@ -164,51 +160,86 @@ def render_money():
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ
+# 🥗 NUTRITION MODÜLÜ (Gelişmiş: Foto + Manuel)
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🥗 Beslenme Analizi")
-    img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
-    st.write("veya")
-    if not st.session_state.camera_active:
-        st.button("📸 Kamerayı Başlat", on_click=open_camera, use_container_width=True)
-        camera_file = None
-    else:
-        st.button("❌ Kapat", on_click=close_camera, type="secondary", use_container_width=True)
-        camera_file = st.camera_input("Çek")
-    extra_bilgi = st.text_input("Ek Bilgi", placeholder="Örn: Yağsız...")
-    image = None
-    if camera_file: image = Image.open(camera_file)
-    elif img_file: image = Image.open(img_file)
-    if image:
-        st.divider()
-        st.image(image, width=300)
-        if st.button("Hesapla", type="primary", use_container_width=True):
-            with st.spinner("Analiz..."):
-                try:
-                    prompt = f"""
-                    GÖREV: Bu yemek fotoğrafını analiz et. NOT: {extra_bilgi}
-                    TALİMAT: Protein kaynaklarının ÇİĞ ağırlığını baz al.
-                    ÇIKTI (Sadece JSON): {{ "yemek_adi": "X", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
-                    """
-                    response = model.generate_content([prompt, image], generation_config={"response_mime_type": "application/json"})
-                    data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
-                    ai_cal, p, k, y = int(data.get("tahmini_toplam_kalori", 0)), float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
-                    yemek = data.get("yemek_adi", "Bilinmeyen")
-                    math_cal = (p*4)+(k*4)+(y*9)
-                    if math_cal > 0:
-                        ratio = ((ai_cal+math_cal)/2)/math_cal
-                        final_p, final_k, final_y = int(p*ratio), int(k*ratio), int(y*ratio)
-                        final_cal = (final_p*4)+(final_k*4)+(final_y*9)
-                    else: final_p, final_k, final_y, final_cal = 0,0,0,0
-                    st.success(f"Analiz: {yemek}")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Kalori", f"{final_cal}")
-                    c2.metric("Pro", f"{final_p}")
-                    c3.metric("Karb", f"{final_k}")
-                    c4.metric("Yağ", f"{final_y}")
-                except Exception as e: st.error(f"Hata: {e}")
+    st.title("🥗 Beslenme Takibi")
+
+    # Sekmeli Yapı
+    tab1, tab2 = st.tabs(["📸 Fotoğraf Analizi", "📝 Manuel Giriş"])
+
+    # --- TAB 1: FOTOĞRAF ANALİZİ (ESKİ KOD) ---
+    with tab1:
+        img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
+        st.write("veya")
+        if not st.session_state.camera_active:
+            st.button("📸 Kamerayı Başlat", on_click=open_camera, use_container_width=True)
+            camera_file = None
+        else:
+            st.button("❌ Kapat", on_click=close_camera, type="secondary", use_container_width=True)
+            camera_file = st.camera_input("Çek")
+        
+        extra_bilgi = st.text_input("Ek Bilgi", placeholder="Örn: Yağsız...")
+        
+        image = None
+        if camera_file: image = Image.open(camera_file)
+        elif img_file: image = Image.open(img_file)
+        
+        if image:
+            st.divider()
+            st.image(image, width=300)
+            if st.button("Hesapla (AI)", type="primary", use_container_width=True):
+                with st.spinner("Analiz..."):
+                    try:
+                        prompt = f"""
+                        GÖREV: Bu yemek fotoğrafını analiz et. NOT: {extra_bilgi}
+                        TALİMAT: Protein kaynaklarının ÇİĞ ağırlığını baz al.
+                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "X", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
+                        """
+                        response = model.generate_content([prompt, image], generation_config={"response_mime_type": "application/json"})
+                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+                        ai_cal, p, k, y = int(data.get("tahmini_toplam_kalori", 0)), float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
+                        yemek = data.get("yemek_adi", "Bilinmeyen")
+                        math_cal = (p*4)+(k*4)+(y*9)
+                        if math_cal > 0:
+                            ratio = ((ai_cal+math_cal)/2)/math_cal
+                            final_p, final_k, final_y = int(p*ratio), int(k*ratio), int(y*ratio)
+                            final_cal = (final_p*4)+(final_k*4)+(final_y*9)
+                        else: final_p, final_k, final_y, final_cal = 0,0,0,0
+                        
+                        st.success(f"Analiz: {yemek}")
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Kalori", f"{final_cal}")
+                        c2.metric("Pro", f"{final_p}g")
+                        c3.metric("Karb", f"{final_k}g")
+                        c4.metric("Yağ", f"{final_y}g")
+                    except Exception as e: st.error(f"Hata: {e}")
+
+    # --- TAB 2: MANUEL GİRİŞ (YENİ) ---
+    with tab2:
+        st.info("Shake, paketli gıda veya makrosunu bildiğin öğünler için.")
+        with st.form("manuel_nutrition_form"):
+            yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                cal = st.number_input("Kalori (kcal)", min_value=0, step=10)
+                prot = st.number_input("Protein (g)", min_value=0, step=1)
+            with c2:
+                karb = st.number_input("Karb (g)", min_value=0, step=1)
+                yag = st.number_input("Yağ (g)", min_value=0, step=1)
+            
+            submitted = st.form_submit_button("Kaydet", type="primary", use_container_width=True)
+            
+            if submitted:
+                st.success(f"Kaydedildi: {yemek_adi}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Kalori", cal)
+                c2.metric("Pro", f"{prot}g")
+                c3.metric("Karb", f"{karb}g")
+                c4.metric("Yağ", f"{yag}g")
+                st.toast("Veriler sisteme işlendi (Demo)")
 
 # ==========================================
 # 🚀 PRODUCTIVITY MODÜLÜ
