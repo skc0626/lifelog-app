@@ -80,7 +80,7 @@ def render_money():
             odeme_yontemi = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Havale"])
             
         aciklama = st.text_input("Açıklama (Opsiyonel)", placeholder="Ne aldın?")
-        durtusel = st.toggle("⚠️ Dürtüsel Harcama mı?", value=False)
+        durtusel = st.toggle("⚠️ Çok da gerekli olmayan bir harcama mı?", value=False)
         
         submitted = st.form_submit_button("Kaydet", use_container_width=True, type="primary")
         
@@ -193,3 +193,4 @@ elif st.session_state.current_page == "nutrition":
     render_nutrition()
 elif st.session_state.current_page == "productivity":
     render_productivity()
+
