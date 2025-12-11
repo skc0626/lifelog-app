@@ -19,10 +19,9 @@ MODEL_ID = "gemini-2.5-flash"
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
 
-# --- ANTRENMAN PROGRAMI (PDF'e Göre Tam Detaylı) ---
-# Kaynak: GURAY’s HYPHERTROPHY no.1.pdf 
+# --- ANTRENMAN PROGRAMI (SADELEŞTİRİLDİ) ---
 ANTRENMAN_PROGRAMI = {
-    "Push 1 (Pazartesi)": [
+    "Push 1": [
         {"ad": "Bench Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"},
         {"ad": "Incline Dumbbell Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"},
         {"ad": "Cable Cross", "set": 3, "hedef": "12-15 Tk (Failure)"},
@@ -31,7 +30,7 @@ ANTRENMAN_PROGRAMI = {
         {"ad": "Rear Delt", "set": 3, "hedef": "12-15 Tk (Beyond Failure)"},
         {"ad": "Triceps Pushdown", "set": 4, "hedef": "8-10 Tk (Failure)"}
     ],
-    "Pull 1 (Salı)": [
+    "Pull 1": [
         {"ad": "Lat Pulldown", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"},
         {"ad": "Barbell Row", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"},
         {"ad": "Cable Row", "set": 3, "hedef": "12-15 Tk (Failure)"},
@@ -40,13 +39,13 @@ ANTRENMAN_PROGRAMI = {
         {"ad": "Barbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"},
         {"ad": "Dumbbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"}
     ],
-    "Legs (Çarşamba)": [
+    "Legs": [
         {"ad": "Squat", "set": 6, "hedef": "4x8-10, 2x12-15 (RIR 1-2)"},
         {"ad": "Leg Press", "set": 6, "hedef": "4x8-10, 2x12-15 (RIR 1-2)"},
         {"ad": "Leg Curl", "set": 5, "hedef": "12-15 Tk (Failure)"},
         {"ad": "Calf Raise", "set": 4, "hedef": "15-20 Tk (Failure)"}
     ],
-    "Push 2 (Cuma)": [
+    "Push 2": [
         {"ad": "Incline Dumbbell Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2)"},
         {"ad": "Cable Cross", "set": 3, "hedef": "12-15 Tk (Failure)"},
         {"ad": "Overhead Press", "set": 4, "hedef": "8-10 Tk (RIR 1-2)"},
@@ -54,7 +53,7 @@ ANTRENMAN_PROGRAMI = {
         {"ad": "Rear Delt", "set": 3, "hedef": "12-15 Tk (Failure)"},
         {"ad": "Triceps Pushdown", "set": 4, "hedef": "8-10 Tk (Failure)"}
     ],
-    "Pull 2 (Cumartesi)": [
+    "Pull 2": [
         {"ad": "Lat Pulldown", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"},
         {"ad": "Cable Row", "set": 4, "hedef": "12-15 Tk (Failure)"},
         {"ad": "Romanian Deadlift", "set": 4, "hedef": "8-10 Tk (RIR 1-2)"},
@@ -100,24 +99,15 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (Fixed Grid Layout)
+# 🏋️‍♂️ SPOR MODÜLÜ (Sadeleştirildi)
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🏋️‍♂️ Antrenman Logu")
 
-    gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-    bugun_isim = gunler[datetime.datetime.today().weekday()]
-    st.info(f"Bugün günlerden: **{bugun_isim}**")
-
-    # Program Seçimi
+    # Program Seçimi (Gün bilgisi kaldırıldı)
     program_listesi = list(ANTRENMAN_PROGRAMI.keys())
-    default_index = 0
-    for i, p in enumerate(program_listesi):
-        if bugun_isim in p:
-            default_index = i
-            break
-    secilen_program = st.selectbox("Bugünkü Programın:", program_listesi, index=default_index)
+    secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
 
     st.divider()
     
@@ -133,23 +123,16 @@ def render_sport():
             if hedef_bilgi:
                 st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
             
-            # --- GRID SİSTEMİ DÜZELTİLDİ ---
-            # Her zaman 3 sütunlu yapı kullanıyoruz.
-            # Eğer 4. sete geçersek, yeni bir satır açıyoruz ama o satır da 3 sütunlu oluyor.
-            # Sadece ilk sütun doluyor, diğerleri boş kalıyor (spacer).
-            
+            # Grid Sistemi
             for i in range(0, set_sayisi, 3):
-                cols = st.columns(3) # Her satırda DAİMA 3 sütun var (Eşit genişlik)
-                
+                cols = st.columns(3)
                 for j in range(3):
                     set_num = i + j + 1
-                    # Eğer set sayısı bittiyse (örn: 4. setten sonra 5 ve 6 yoksa) boş geç
                     if set_num <= set_sayisi:
                         with cols[j]:
                             st.markdown(f"**Set {set_num}**")
                             st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
                             st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
-            
             st.markdown("---") 
 
         st.text_area("Antrenman Notları", placeholder="Pump nasıldı? Enerjin, ağrıların vs.")
