@@ -242,7 +242,7 @@ ANTRENMAN_PROGRAMI = {
     ]
 }
 
-# --- SESSION STATE ---
+# --- SESSION STATE (HATALI KISIM DÜZELTİLDİ) ---
 if "current_page" not in st.session_state:
     st.session_state.current_page = "home"
 if "ai_nutrition_result" not in st.session_state:
@@ -251,9 +251,13 @@ if "ai_text_result" not in st.session_state:
     st.session_state.ai_text_result = None
 if "user_settings" not in st.session_state:
     st.session_state.user_settings = get_settings()
+# *** EKSİK OLAN BU SATIR EKLENDİ ***
+if "camera_active" not in st.session_state:
+    st.session_state.camera_active = False
 
 def navigate_to(page):
     st.session_state.current_page = page
+    st.session_state.camera_active = False # Kamera açıksa kapansın
     st.session_state.ai_nutrition_result = None
     st.session_state.ai_text_result = None
 
@@ -265,7 +269,7 @@ def close_camera():
     st.session_state.camera_active = False
 
 # ==========================================
-# 🏠 ANA MENÜ (DASHBOARD - UI GÜNCELLENDİ)
+# 🏠 ANA MENÜ (DASHBOARD)
 # ==========================================
 def render_home():
     st.title("🌱 LifeLog")
@@ -275,7 +279,6 @@ def render_home():
     stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
-    # 1. Satır: Money & Nutrition
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"**💸 Finans (Bugün)**")
@@ -290,7 +293,6 @@ def render_home():
     
     st.divider()
     
-    # 2. Satır: Spor ve Kilo
     c3, c4 = st.columns(2)
     with c3:
         st.markdown("**🏋️‍♂️ Son Antrenmanlar**")
@@ -298,24 +300,21 @@ def render_home():
         if workouts:
             history_str = " → ".join(workouts)
             st.info(history_str)
-        else:
-            st.caption("Kayıt yok.")
+        else: st.caption("Kayıt yok.")
             
     with c4:
-        # GÜNCELLENDİ: Temiz Kilo Gösterimi
+        st.markdown("**⚖️ Güncel Kilo**")
         last_w = stats.get('last_weight')
         last_w_date = stats.get('last_weight_date')
         if last_w:
             st.metric("Son Ölçüm", f"{last_w} kg ({last_w_date})")
-        else:
-            st.metric("Son Ölçüm", "- kg")
+        else: st.metric("Son Ölçüm", "- kg")
         
     st.divider()
 
     st.write("### Modüller")
     col1, col2 = st.columns(2)
     with col1:
-        # ANA BUTONLAR PRIMARY (KIRMIZI/DOLU)
         st.button("💸 Money", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
         st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True, type="primary")
     with col2:
@@ -324,7 +323,6 @@ def render_home():
             
     col3, col4 = st.columns(2)
     with col3:
-        # YAN BUTONLAR SECONDARY (GRİ/BOŞ)
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True, type="secondary")
     with col4:
         st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
@@ -335,7 +333,6 @@ def render_home():
 def render_settings():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("⚙️ Ayarlar")
-    
     current = st.session_state.user_settings
     
     with st.form("settings_form"):
@@ -361,7 +358,6 @@ def render_weight():
     
     with st.form("weight_form"):
         kilo = st.number_input("Güncel Kilo (kg)", min_value=0.0, step=0.1, format="%.1f")
-        
         if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
             if kilo > 0:
                 tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
@@ -384,8 +380,6 @@ def render_nutrition():
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Kalori", f"{curr_cal} / {targets['target_cal']}")
-    # Makroları anlık çekmek için ekstra sorgu yapılabilir, şimdilik dashboard datasıyla devam
-    # c2.metric("Protein", ...) 
     
     st.divider()
 
@@ -410,7 +404,6 @@ def render_nutrition():
         if image:
             st.divider()
             st.image(image, width=300)
-            
             if st.button("Hesapla (AI)", type="primary", use_container_width=True):
                 with st.spinner("Analiz..."):
                     try:
@@ -455,7 +448,6 @@ def render_nutrition():
     with tab2:
         st.write("Yediklerini yaz, Gemini analiz etsin.")
         text_input = st.text_area("Ne yedin?", placeholder="Örn: 50g yulaf, 1 muz")
-        
         if st.button("Metni Analiz Et", type="primary", use_container_width=True):
             if text_input:
                 with st.spinner("Metin işleniyor..."):
@@ -470,7 +462,6 @@ def render_nutrition():
                         ai_cal = int(data.get("tahmini_toplam_kalori", 0))
                         p, k, y = float(data.get("protein", 0)), float(data.get("karb", 0)), float(data.get("yag", 0))
                         yemek = data.get("yemek_adi", text_input)
-                        
                         st.session_state.ai_text_result = {"yemek": yemek, "cal": ai_cal, "p": p, "k": k, "y": y}
                     except Exception as e: st.error(f"Hata: {e}")
             else: st.warning("Bir şeyler yazman lazım.")
