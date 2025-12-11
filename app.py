@@ -5,29 +5,24 @@ import json
 import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd # YENİ: Veri analizi için
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 
-# --- GÜVENLİK VE BAĞLANTILAR ---
+# --- GÜVENLİK ---
 try:
-    # 1. Gemini API Key
     API_KEY = st.secrets["GOOGLE_API_KEY"]
-    
-    # 2. Google Sheets Service Account
-    # Secrets'tan dictionary olarak çekiyoruz
     gcp_secrets = st.secrets["gcp_service_account"]
 except:
-    st.error("⚠️ Ayarlar eksik! API Key veya Google Cloud JSON verisi Secrets'ta yok.")
+    st.error("⚠️ Ayarlar eksik! Secrets kontrolü yap.")
     st.stop()
 
-# Model Başlat
 MODEL_ID = "gemini-2.5-flash" 
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel(MODEL_ID)
 
-# --- VERİTABANI FONKSİYONLARI ---
-# Cache kullanarak her işlemde tekrar tekrar bağlanmayı engelliyoruz
+# --- VERİTABANI BAĞLANTISI ---
 @st.cache_resource
 def get_google_sheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -35,28 +30,69 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-def save_to_sheet(tab_name, row_data):
-    """Tek bir satır veri eklemek için (Money, Nutrition)"""
+# --- YENİ: GEÇMİŞ VERİLERİ ÇEKME FONKSİYONU ---
+def get_gym_history():
+    """Gym sekmesindeki tüm veriyi çeker ve hareket bazlı en son kaydı bulur."""
     try:
         client = get_google_sheet_client()
-        sheet = client.open("LifeLog_DB") # Senin oluşturduğun tablo adı
-        worksheet = sheet.worksheet(tab_name)
-        worksheet.append_row(row_data)
-        return True
-    except Exception as e:
-        st.error(f"Veritabanı Hatası: {e}")
-        return False
+        sheet = client.open("LifeLog_DB")
+        worksheet = sheet.worksheet("Gym")
+        
+        # Tüm veriyi al
+        data = worksheet.get_all_records()
+        
+        if not data:
+            return {}
+            
+        df = pd.DataFrame(data)
+        
+        # Sütun isimleri Sheet'teki ile aynı olmalı: Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not
+        # Tarihe göre sırala (En yeni en üstte olsun)
+        # Not: Google Sheets tarih formatı bazen string gelir, sıralama için datetime'a çevirmek gerekebilir
+        # Ama basitlik adına şimdilik string sıralaması yapıyoruz (YYYY-MM-DD formatı olduğu için çalışır)
+        df = df.sort_values(by="Tarih", ascending=False)
+        
+        # Her hareketin ilk kaydını (en son yapılanı) al
+        # drop_duplicates, ilk bulduğunu tutar (ki o da en yenisidir)
+        latest_logs = df.drop_duplicates(subset=["Hareket"], keep="first")
+        
+        # Sözlüğe çevir: {"Bench Press": {"agirlik": 80, "tekrar": 8, "not": "..."}}
+        history = {}
+        for index, row in latest_logs.iterrows():
+            hareket_adi = row["Hareket"]
+            history[hareket_adi] = {
+                "tarih": row["Tarih"],
+                "agirlik": row["Ağırlık"],
+                "tekrar": row["Tekrar"],
+                "set": row["Set No"],
+                "not": row["Not"]
+            }
+        return history
 
-def save_batch_to_sheet(tab_name, rows_data):
-    """Çoklu satır eklemek için (Gym - Tüm antrenmanı tek seferde basar)"""
+    except Exception as e:
+        # st.error(f"Geçmiş verisi çekilemedi: {e}") # Debug için açabilirsin
+        return {}
+
+def save_to_sheet(tab_name, row_data):
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB")
         worksheet = sheet.worksheet(tab_name)
-        worksheet.append_rows(rows_data) # append_rowS (çoğul)
+        worksheet.append_row(row_data)
         return True
     except Exception as e:
-        st.error(f"Veritabanı Hatası: {e}")
+        st.error(f"Hata: {e}")
+        return False
+
+def save_batch_to_sheet(tab_name, rows_data):
+    try:
+        client = get_google_sheet_client()
+        sheet = client.open("LifeLog_DB")
+        worksheet = sheet.worksheet(tab_name)
+        worksheet.append_rows(rows_data)
+        return True
+    except Exception as e:
+        st.error(f"Hata: {e}")
         return False
 
 # --- ANTRENMAN PROGRAMI ---
@@ -144,7 +180,7 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (DATABASE ENTEGRE)
+# 🏋️‍♂️ SPOR MODÜLÜ (Gelişmiş Hafıza)
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -153,6 +189,11 @@ def render_sport():
     program_listesi = list(ANTRENMAN_PROGRAMI.keys())
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
     st.divider()
+
+    # --- GEÇMİŞ VERİLERİ ÇEK ---
+    # Sadece program seçilince bir kere çeksin, sürekli yormasın diye burada çağırıyoruz
+    with st.spinner("Geçmiş antrenman verileri taranıyor..."):
+        history_data = get_gym_history()
     
     with st.form("gym_form"):
         hareketler = ANTRENMAN_PROGRAMI[secilen_program]
@@ -162,8 +203,21 @@ def render_sport():
             hedef_bilgi = hareket_veri.get("hedef", "")
             
             st.markdown(f"### 📌 {hareket_adi}")
+            
+            # --- HAFIZA GÖSTERİMİ ---
+            if hareket_adi in history_data:
+                h = history_data[hareket_adi]
+                # Örnek Çıktı: 📅 Son: 80kg x 8 (Not: Zorlandım)
+                bilgi_notu = f"📅 Son Kayıt ({h['tarih']}): **{h['agirlik']}kg x {h['tekrar']}**"
+                if h['not']:
+                    bilgi_notu += f" | 📝 _{h['not']}_"
+                st.info(bilgi_notu, icon="⏮️")
+            else:
+                st.caption("Bu hareket için henüz kayıt yok.")
+
             if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
             
+            # Set Kutucukları
             for i in range(0, set_sayisi, 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -171,31 +225,24 @@ def render_sport():
                     if set_num <= set_sayisi:
                         with cols[j]:
                             st.markdown(f"**Set {set_num}**")
-                            # Key'ler unique olmalı ki veriyi sonra çekebilelim
                             st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
                             st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
             st.markdown("---") 
 
         notlar = st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
         
-        # KAYDETME İŞLEMİ
         if st.form_submit_button("Antrenmanı Bitir", use_container_width=True, type="primary"):
             toplanacak_veri = []
             tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             
-            # Formdaki tüm verileri tara
             for hareket_veri in hareketler:
                 h_adi = hareket_veri["ad"]
                 h_set = hareket_veri["set"]
-                
                 for s in range(1, h_set + 1):
-                    # Session state'ten değerleri çek
                     kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
                     rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
-                    
-                    # Eğer ikisi de boş değilse listeye ekle
                     if kg_val and rep_val:
-                        # [Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not]
+                        # Sheets'teki sütun sırasına dikkat: Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not
                         satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
                         toplanacak_veri.append(satir)
             
@@ -203,9 +250,9 @@ def render_sport():
                 with st.spinner("Buluta yazılıyor..."):
                     if save_batch_to_sheet("Gym", toplanacak_veri):
                         st.balloons()
-                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi!")
+                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi! Bir sonraki antrenmanda bunları hatırlayacağım.")
             else:
-                st.warning("Hiçbir set girmedin şef, boş kağıt mı veriyorsun?")
+                st.warning("Boş antrenman kaydedilemez.")
 
 # ==========================================
 # 💸 MONEY MODÜLÜ (DATABASE ENTEGRE)
@@ -226,9 +273,7 @@ def render_money():
         if st.form_submit_button("Kaydet", use_container_width=True, type="primary"):
             if tutar > 0:
                 tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                # [Tarih, Tutar, Kategori, Ödeme, Açıklama, Dürtüsel]
                 veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
-                
                 with st.spinner("Kaydediliyor..."):
                     if save_to_sheet("Money", veri):
                         st.success(f"✅ Kaydedildi: {tutar} TL")
@@ -300,14 +345,11 @@ def render_nutrition():
                 
                 if st.button("💾 Öğünü Kaydet", use_container_width=True):
                     tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # [Tarih, Yemek Adı, Kalori, Protein, Karb, Yağ, Kaynak]
                     veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI - " + extra_bilgi]
-                    
                     with st.spinner("Kaydediliyor..."):
                         if save_to_sheet("Nutrition", veri):
                             st.toast(f"Kaydedildi!", icon="✅")
-                            st.session_state.ai_nutrition_result = None # Temizle
-                            # st.rerun() # İstersen sayfayı yenile
+                            st.session_state.ai_nutrition_result = None
 
     # --- TAB 2: MANUEL ---
     with tab2:
@@ -324,9 +366,7 @@ def render_nutrition():
             
             if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
                 tarih = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                # [Tarih, Yemek Adı, Kalori, Protein, Karb, Yağ, Kaynak]
                 veri = [tarih, yemek_adi, cal, prot, karb, yag, "Manuel"]
-                
                 with st.spinner("Kaydediliyor..."):
                     if save_to_sheet("Nutrition", veri):
                         st.success(f"✅ Kaydedildi: {yemek_adi}")
