@@ -5,7 +5,7 @@ import json
 import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd # YENİ: Veri analizi için
+import pandas as pd
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
@@ -30,47 +30,66 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- YENİ: GEÇMİŞ VERİLERİ ÇEKME FONKSİYONU ---
+# --- GÜNCELLENDİ: TÜM SETLERİ GETİREN HAFIZA ---
 def get_gym_history():
-    """Gym sekmesindeki tüm veriyi çeker ve hareket bazlı en son kaydı bulur."""
+    """Hareket bazında son antrenmandaki TÜM setleri çeker."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB")
         worksheet = sheet.worksheet("Gym")
         
-        # Tüm veriyi al
         data = worksheet.get_all_records()
-        
-        if not data:
-            return {}
+        if not data: return {}
             
         df = pd.DataFrame(data)
         
-        # Sütun isimleri Sheet'teki ile aynı olmalı: Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not
-        # Tarihe göre sırala (En yeni en üstte olsun)
-        # Not: Google Sheets tarih formatı bazen string gelir, sıralama için datetime'a çevirmek gerekebilir
-        # Ama basitlik adına şimdilik string sıralaması yapıyoruz (YYYY-MM-DD formatı olduğu için çalışır)
-        df = df.sort_values(by="Tarih", ascending=False)
+        # Sütunların sayısal olduğundan emin olalım (Sıralama hatası olmasın)
+        # Eğer Set No boş gelirse hata vermesin diye fillna(0)
+        if "Set No" in df.columns:
+            df["Set No"] = pd.to_numeric(df["Set No"], errors='coerce').fillna(0)
+            
+        # 1. Önce Tarihe göre (En yeni en üstte), Sonra Set Numarasına göre (1,2,3..) sırala
+        df = df.sort_values(by=["Tarih", "Set No"], ascending=[False, True])
         
-        # Her hareketin ilk kaydını (en son yapılanı) al
-        # drop_duplicates, ilk bulduğunu tutar (ki o da en yenisidir)
-        latest_logs = df.drop_duplicates(subset=["Hareket"], keep="first")
-        
-        # Sözlüğe çevir: {"Bench Press": {"agirlik": 80, "tekrar": 8, "not": "..."}}
         history = {}
-        for index, row in latest_logs.iterrows():
-            hareket_adi = row["Hareket"]
-            history[hareket_adi] = {
-                "tarih": row["Tarih"],
-                "agirlik": row["Ağırlık"],
-                "tekrar": row["Tekrar"],
-                "set": row["Set No"],
-                "not": row["Not"]
+        unique_moves = df["Hareket"].unique()
+        
+        for move in unique_moves:
+            # Bu hareketin tüm kayıtlarını al
+            move_logs = df[df["Hareket"] == move]
+            
+            # En son ne zaman yapılmış? (İlk satır en yenisi)
+            last_date = move_logs.iloc[0]["Tarih"]
+            
+            # Sadece o tarihe ait kayıtları filtrele (O günkü tüm setler)
+            last_session = move_logs[move_logs["Tarih"] == last_date]
+            
+            # Setleri yan yana string olarak birleştir
+            # Örn: "S1: 80x12 | S2: 80x10..."
+            sets_summary = []
+            for _, row in last_session.iterrows():
+                try:
+                    s_no = int(row['Set No'])
+                    kg = row['Ağırlık']
+                    rep = row['Tekrar']
+                    sets_summary.append(f"S{s_no}: **{kg}**x{rep}")
+                except:
+                    continue
+            
+            formatted_sets = "  |  ".join(sets_summary)
+            
+            # Sözlüğe kaydet
+            history[move] = {
+                "tarih": last_date,
+                "ozet": formatted_sets,
+                "not": last_session.iloc[0]["Not"] # Notlar genelde aynıdır, ilkini al
             }
+            
         return history
 
     except Exception as e:
-        # st.error(f"Geçmiş verisi çekilemedi: {e}") # Debug için açabilirsin
+        # Hata olursa sessizce boş dön, sistemi kitleme
+        # st.error(f"Debug: {e}") 
         return {}
 
 def save_to_sheet(tab_name, row_data):
@@ -180,7 +199,7 @@ def render_home():
         st.button("🚀 Productivity", on_click=navigate_to, args=("productivity",), use_container_width=True)
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (Gelişmiş Hafıza)
+# 🏋️‍♂️ SPOR MODÜLÜ (Gelişmiş Hafıza - Çoklu Set)
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -190,8 +209,6 @@ def render_sport():
     secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
     st.divider()
 
-    # --- GEÇMİŞ VERİLERİ ÇEK ---
-    # Sadece program seçilince bir kere çeksin, sürekli yormasın diye burada çağırıyoruz
     with st.spinner("Geçmiş antrenman verileri taranıyor..."):
         history_data = get_gym_history()
     
@@ -204,20 +221,20 @@ def render_sport():
             
             st.markdown(f"### 📌 {hareket_adi}")
             
-            # --- HAFIZA GÖSTERİMİ ---
+            # --- YENİ HAFIZA GÖSTERİMİ ---
+            # Artık tüm setleri yan yana gösteriyor
             if hareket_adi in history_data:
                 h = history_data[hareket_adi]
-                # Örnek Çıktı: 📅 Son: 80kg x 8 (Not: Zorlandım)
-                bilgi_notu = f"📅 Son Kayıt ({h['tarih']}): **{h['agirlik']}kg x {h['tekrar']}**"
+                # Başlık
+                st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
+                # Not varsa altına küçük yaz
                 if h['not']:
-                    bilgi_notu += f" | 📝 _{h['not']}_"
-                st.info(bilgi_notu, icon="⏮️")
+                    st.caption(f"📝 Not: {h['not']}")
             else:
                 st.caption("Bu hareket için henüz kayıt yok.")
 
             if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
             
-            # Set Kutucukları
             for i in range(0, set_sayisi, 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -242,7 +259,6 @@ def render_sport():
                     kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
                     rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
                     if kg_val and rep_val:
-                        # Sheets'teki sütun sırasına dikkat: Tarih, Program, Hareket, Set No, Ağırlık, Tekrar, Not
                         satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
                         toplanacak_veri.append(satir)
             
@@ -250,12 +266,12 @@ def render_sport():
                 with st.spinner("Buluta yazılıyor..."):
                     if save_batch_to_sheet("Gym", toplanacak_veri):
                         st.balloons()
-                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi! Bir sonraki antrenmanda bunları hatırlayacağım.")
+                        st.success(f"✅ {len(toplanacak_veri)} set veritabanına kaydedildi!")
             else:
                 st.warning("Boş antrenman kaydedilemez.")
 
 # ==========================================
-# 💸 MONEY MODÜLÜ (DATABASE ENTEGRE)
+# 💸 MONEY MODÜLÜ
 # ==========================================
 def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -281,7 +297,7 @@ def render_money():
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🥗 NUTRITION MODÜLÜ (DATABASE ENTEGRE)
+# 🥗 NUTRITION MODÜLÜ
 # ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -289,7 +305,6 @@ def render_nutrition():
 
     tab1, tab2 = st.tabs(["📸 Fotoğraf Analizi", "📝 Manuel Giriş"])
 
-    # --- TAB 1: AI FOTOĞRAF ---
     with tab1:
         img_file = st.file_uploader("📂 Galeriden Seç", type=["jpg", "png", "jpeg"])
         st.write("veya")
@@ -351,7 +366,6 @@ def render_nutrition():
                             st.toast(f"Kaydedildi!", icon="✅")
                             st.session_state.ai_nutrition_result = None
 
-    # --- TAB 2: MANUEL ---
     with tab2:
         st.info("Shake, paketli gıda veya makrosunu bildiğin öğünler için.")
         with st.form("manuel_nutrition_form"):
