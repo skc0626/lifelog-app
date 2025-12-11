@@ -3,11 +3,16 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# --- YAPILANDIRMA ---
-API_KEY = "AIzaSyDs32u6vELmNWQ4KmOoA16f7jk510AsJdQ"
-
-# Sayfa Başlığı ve İkonu
+# Sayfa Başlığı
 st.set_page_config(page_title="LifeLog Nutrition", page_icon="🥗", layout="centered")
+
+# --- GÜVENLİK: API Key'i Secrets'tan çekiyoruz ---
+# Kodun içinde şifre yok! Streamlit'in kasasından okuyacak.
+try:
+    API_KEY = st.secrets["GOOGLE_API_KEY"]
+except:
+    st.error("Hata: API Key bulunamadı. Lütfen Streamlit Secrets ayarlarını yapın.")
+    st.stop()
 
 # --- MODEL AYARLARI ---
 MODEL_ID = "gemini-2.5-flash" 
@@ -25,18 +30,16 @@ def close_camera():
     st.session_state.camera_active = False
 
 # --- ARAYÜZ ---
-# Modül Başlığı
 st.title("🥗 LifeLog")
 st.caption("Nutrition Module v1.0")
 
 st.write("### Görsel Kaynağı")
 
-# Dosya Yükleme
 img_file = st.file_uploader("📂 Galeriden Dosya Seç", type=["jpg", "png", "jpeg"])
 
 st.write("--- veya ---")
 
-# --- KAMERA MANTIĞI (Toggle) ---
+# --- KAMERA MANTIĞI ---
 if not st.session_state.camera_active:
     st.button("📸 Kamerayı Başlat", on_click=open_camera, type="primary", use_container_width=True)
     camera_file = None
@@ -57,11 +60,9 @@ if image:
     st.divider()
     st.image(image, caption="Seçilen Görsel", width=300)
     
-    # Hesapla Butonu
     if st.button("Hesapla", type="primary", use_container_width=True):
         with st.spinner("LifeLog analiz yapıyor..."):
             try:
-                # Prompt: Sadece JSON verisi ister
                 prompt = f"""
                 GÖREV: Bu yemek fotoğrafını analiz et.
                 KULLANICI NOTU: {extra_bilgi}
@@ -86,14 +87,12 @@ if image:
                 text_data = response.text.replace("```json", "").replace("```", "").strip()
                 data = json.loads(text_data)
                 
-                # Verileri Ayrıştır
                 ai_cal = int(data.get("tahmini_toplam_kalori", 0))
                 p = float(data.get("protein", 0))
                 k = float(data.get("karb", 0))
                 y = float(data.get("yag", 0))
                 yemek = data.get("yemek_adi", "Bilinmeyen")
 
-                # Matematiksel Kalibrasyon
                 math_cal = (p * 4) + (k * 4) + (y * 9)
 
                 if math_cal > 0:
@@ -106,7 +105,6 @@ if image:
                 else:
                     final_p, final_k, final_y, final_cal = 0, 0, 0, 0
 
-                # Sonuç Ekranı
                 st.success(f"Analiz: {yemek}")
                 
                 c1, c2, c3, c4 = st.columns(4)
