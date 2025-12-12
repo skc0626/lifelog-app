@@ -25,7 +25,7 @@ st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 def get_tr_now():
     return datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
 
-# --- GÜVENLİK ---
+# --- GÜVENLİK VE AYARLAR ---
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
     gcp_secrets = st.secrets["gcp_service_account"]
@@ -46,19 +46,18 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- PERFORMANS İÇİN ÖNEMLİ: CACHE AYARLARI ---
-# Cache süresini 60 saniyeye düşürdük. (daha hızlı refresh)
+# --- OPTİMİZE EDİLMİŞ VERİ ÇEKME (CACHE) ---
+# 60 saniyelik cache. Hem hızlı hem güncel.
 @st.cache_data(ttl=60) 
 def get_all_sheet_data(tab_name):
-    """Belirtilen sekmedeki tüm veriyi çeker (60 saniyelik cache ile)."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
         return sheet.get_all_records()
-    except Exception as e:
+    except:
         return []
 
-# --- YARDIMCI VERİ FONKSİYONLARI ---
+# --- YARDIMCI FONKSİYONLAR ---
 def get_settings():
     defaults = {
         "target_cal": 2450, "target_prot": 200, "target_karb": 300, "target_yag": 50,
@@ -95,52 +94,77 @@ def save_settings(new_settings):
         st.error(f"Hata: {e}")
         return False
 
-# --- KRİTİK DÜZELTME: CACHE KALDIRILDI ---
+# --- ANA DASHBOARD VERİSİ ---
+# Cache'i buradan kaldırdık, veriyi get_all_sheet_data yönetiyor artık.
 def get_dashboard_data():
-    """Tüm modüllerden özet verileri çeker (CACHE KALDIRILDI)."""
-    # Bu fonksiyon artık takılma yapmamalı.
     stats = {}
     today = get_tr_now().date()
 
-    # Data Çekme (Cache'li)
     m_data = get_all_sheet_data("Money")
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
 
-    # 1. Money Stats
+    # 1. Money
     if m_data:
-        df_m = pd.DataFrame(m_data); df_m["Tarih"] = pd.to_datetime(df_m["Tarih"], errors='coerce'); df_m["Tutar"] = pd.to_numeric(df_m["Tutar"], errors='coerce').fillna(0)
-        daily_m = df_m[df_m["Tarih"].dt.date == today]
-        stats['money_count'] = len(daily_m); stats['money_total'] = daily_m["Tutar"].sum()
-        monthly_m = df_m[(df_m["Tarih"].dt.month == today.month) & (df_m["Tarih"].dt.year == today.year)]
-        stats['money_month'] = monthly_m["Tutar"].sum()
+        df_m = pd.DataFrame(m_data)
+        if "Tarih" in df_m.columns and "Tutar" in df_m.columns:
+            df_m["Tarih"] = pd.to_datetime(df_m["Tarih"], errors='coerce')
+            df_m["Tutar"] = pd.to_numeric(df_m["Tutar"], errors='coerce').fillna(0)
+            daily_m = df_m[df_m["Tarih"].dt.date == today]
+            stats['money_count'] = len(daily_m)
+            stats['money_total'] = daily_m["Tutar"].sum()
+            monthly_m = df_m[(df_m["Tarih"].dt.month == today.month) & (df_m["Tarih"].dt.year == today.year)]
+            stats['money_month'] = monthly_m["Tutar"].sum()
+        else: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
     else: stats['money_count'], stats['money_total'], stats['money_month'] = 0, 0, 0
 
-    # 2. Nutrition Stats
+    # 2. Nutrition
     if n_data:
-        df_n = pd.DataFrame(n_data); df_n["Tarih"] = pd.to_datetime(df_n["Tarih"], errors='coerce')
-        daily_n = df_n[df_n["Tarih"].dt.date == today]
-        for col in ["Kalori", "Protein", "Karb", "Yağ"]:
-             if col in df_n.columns: daily_n[col] = pd.to_numeric(daily_n[col], errors='coerce').fillna(0)
-        stats['cal'] = daily_n["Kalori"].sum(); stats['prot'] = daily_n["Protein"].sum(); stats['karb'] = daily_n["Karb"].sum(); stats['yag'] = daily_n["Yağ"].sum()
+        df_n = pd.DataFrame(n_data)
+        if "Tarih" in df_n.columns:
+            df_n["Tarih"] = pd.to_datetime(df_n["Tarih"], errors='coerce')
+            daily_n = df_n[df_n["Tarih"].dt.date == today]
+            for col in ["Kalori", "Protein", "Karb", "Yağ"]:
+                 if col in df_n.columns: daily_n[col] = pd.to_numeric(daily_n[col], errors='coerce').fillna(0)
+            stats['cal'] = daily_n["Kalori"].sum()
+            stats['prot'] = daily_n["Protein"].sum()
+            stats['karb'] = daily_n["Karb"].sum()
+            stats['yag'] = daily_n["Yağ"].sum()
+        else: stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0
     else: stats['cal'], stats['prot'], stats['karb'], stats['yag'] = 0,0,0,0
 
-    # 3. Gym Stats
+    # 3. Gym
     if g_data:
-        df_g = pd.DataFrame(g_data); df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce'); df_g = df_g.sort_values(by="Tarih", ascending=False)
-        unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
-        workout_list = [];
-        for _, row in unique_sessions.iterrows():
-            d_str = row['Tarih'].strftime("%d.%m"); p_name = row['Program']
-            workout_list.append((p_name, d_str))
-        stats['last_workouts'] = workout_list
+        df_g = pd.DataFrame(g_data)
+        if "Tarih" in df_g.columns and "Program" in df_g.columns:
+            df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce')
+            df_g = df_g.sort_values(by="Tarih", ascending=False)
+            unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
+            workout_list = []
+            for _, row in unique_sessions.iterrows():
+                try:
+                    d_str = row['Tarih'].strftime("%d.%m")
+                    p_name = row['Program']
+                    workout_list.append((p_name, d_str))
+                except: continue
+            stats['last_workouts'] = workout_list
+        else: stats['last_workouts'] = []
     else: stats['last_workouts'] = []
 
-    # 4. Weight Stats
+    # 4. Weight
     if w_data:
-        df_w = pd.DataFrame(w_data); df_w["Tarih"] = pd.to_datetime(df_w["Tarih"], errors='coerce'); df_w = df_w.sort_values(by="Tarih", ascending=False)
-        last_entry = df_w.iloc[0]; stats['last_weight'] = last_entry['Kilo']; stats['last_weight_date'] = last_entry['Tarih'].strftime("%d.%m")
+        df_w = pd.DataFrame(w_data)
+        if "Tarih" in df_w.columns and "Kilo" in df_w.columns:
+            df_w["Tarih"] = pd.to_datetime(df_w["Tarih"], errors='coerce')
+            df_w = df_w.sort_values(by="Tarih", ascending=False)
+            if not df_w.empty:
+                last_entry = df_w.iloc[0]
+                stats['last_weight'] = last_entry['Kilo']
+                try: stats['last_weight_date'] = last_entry['Tarih'].strftime("%d.%m")
+                except: stats['last_weight_date'] = ""
+            else: stats['last_weight'] = None
+        else: stats['last_weight'] = None
     else: stats['last_weight'] = None
     
     return stats
@@ -177,8 +201,7 @@ def get_gym_history(current_program):
 
 # --- KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
-    get_all_sheet_data.clear() 
-    # get_dashboard_data.clear() # Bu satırı sildik, çünkü cache'i zaten kaldırdık
+    get_all_sheet_data.clear() # Cache temizle
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -189,8 +212,7 @@ def save_to_sheet(tab_name, row_data):
         return False
 
 def save_batch_to_sheet(tab_name, rows_data):
-    get_all_sheet_data.clear() 
-    # get_dashboard_data.clear() # Bu satırı sildik, çünkü cache'i zaten kaldırdık
+    get_all_sheet_data.clear() # Cache temizle
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -200,7 +222,7 @@ def save_batch_to_sheet(tab_name, rows_data):
         st.error(f"Hata: {e}")
         return False
 
-# --- ANTRENMAN PROGRAMI (Kısaltıldı) ---
+# --- ANTRENMAN PROGRAMI ---
 ANTRENMAN_PROGRAMI = {
     "Push 1": [{"ad": "Bench Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Incline Dumbbell Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Cable Cross", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Overhead Press", "set": 4, "hedef": "8-10 Tk (RIR 1-2)"}, {"ad": "Lateral Raise", "set": 4, "hedef": "12-15 Tk (Beyond Failure)"}, {"ad": "Rear Delt", "set": 3, "hedef": "12-15 Tk (Beyond Failure)"}, {"ad": "Triceps Pushdown", "set": 4, "hedef": "8-10 Tk (Failure)"}],
     "Pull 1": [{"ad": "Lat Pulldown", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Barbell Row", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Cable Row", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Rope Pullover", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Pull Up", "set": 1, "hedef": "1x Max (Failure)"}, {"ad": "Barbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"}, {"ad": "Dumbbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"}],
@@ -235,9 +257,8 @@ def render_home():
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y %A')}")
     
-    # Hata oluştuğu varsayılan fonksiyon
-    with st.spinner("Dashboard verileri yükleniyor..."):
-        stats = get_dashboard_data()
+    # Spinner kaldırıldı, sessizce yükle
+    stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
     # --- KART 1: FİNANS & BESLENME ---
@@ -292,7 +313,7 @@ def render_home():
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
-        st.button("🚭 Sigarayı Bırak", on_on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
+        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary") # HATA BURADAYDI, DÜZELDİ
     with col2:
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
         st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
@@ -312,27 +333,28 @@ def render_settings():
     st.title("⚙️ Hedef Ayarları")
     current = st.session_state.user_settings
     
-    with st.form("settings_form"):
-        st.subheader("Beslenme Hedefleri")
-        t_cal = st.number_input("Kalori (kcal)", value=int(current.get('target_cal', 2450)), step=50)
-        c1, c2, c3 = st.columns(3)
-        with c1: t_prot = st.number_input("Protein (g)", value=int(current.get('target_prot', 200)), step=5)
-        with c2: t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
-        with c3: t_yag = st.number_input("Yağ (g)", value=int(current.get('target_yag', 50)), step=5)
-        
-        st.subheader("Sigara Bırakma")
-        default_quit_date = current.get('smoke_quit_date') if current.get('smoke_quit_date') else datetime.date.today()
-        quit_date_input = st.date_input("Bırakma Başlangıç Tarihi", value=default_quit_date)
-        
-        if st.form_submit_button("💾 Kaydet", type="primary", use_container_width=True):
-            new_settings = {
-                "target_cal": t_cal, "target_prot": t_prot, "target_karb": t_karb, "target_yag": t_yag,
-                "smoke_quit_date": quit_date_input
-            }
-            with st.spinner("Kaydediliyor..."):
-                if save_settings(new_settings):
-                    st.session_state.user_settings = new_settings
-                    st.success("Ayarlar güncellendi! ✅")
+    with st.container(border=True):
+        with st.form("settings_form"):
+            st.subheader("Beslenme Hedefleri")
+            t_cal = st.number_input("Kalori (kcal)", value=int(current.get('target_cal', 2450)), step=50)
+            c1, c2, c3 = st.columns(3)
+            with c1: t_prot = st.number_input("Protein (g)", value=int(current.get('target_prot', 200)), step=5)
+            with c2: t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
+            with c3: t_yag = st.number_input("Yağ (g)", value=int(current.get('target_yag', 50)), step=5)
+            
+            st.subheader("Sigara Bırakma")
+            default_quit_date = current.get('smoke_quit_date') if current.get('smoke_quit_date') else datetime.date.today()
+            quit_date_input = st.date_input("Bırakma Başlangıç Tarihi", value=default_quit_date)
+            
+            if st.form_submit_button("💾 Kaydet", type="primary", use_container_width=True):
+                new_settings = {
+                    "target_cal": t_cal, "target_prot": t_prot, "target_karb": t_karb, "target_yag": t_yag,
+                    "smoke_quit_date": quit_date_input
+                }
+                with st.spinner("Kaydediliyor..."):
+                    if save_settings(new_settings):
+                        st.session_state.user_settings = new_settings
+                        st.success("Ayarlar güncellendi! ✅")
 
 # ==========================================
 # ⚖️ KİLO MODÜLÜ
@@ -412,7 +434,7 @@ def render_smoking_intervention():
         
         root_cause = st.selectbox(
             "1. Şu anki isteğin asıl nedeni ne? (Seçim zorunlu değil)",
-            ["Can sıkıntısı", "Stres/Kaygı", "Kahve/Alkol", "Sosyal Alışkanlık", "Diğer/Tanımlanamayan", "Seçmedim/Önemli Değğil"]
+            ["Can sıkıntısı", "Stres/Kaygı", "Kahve/Alkol", "Sosyal Alışkanlık", "Diğer/Tanımlanamayan", "Seçmedim/Önemli Değil"]
         )
 
         output_analysis = st.text_area(
@@ -430,7 +452,6 @@ def render_smoking_intervention():
         if st.form_submit_button("Krizi Logla ve Kontrolü Geri Al", type="primary", use_container_width=True):
             st.success("Kriz Loglandı. Görevin bitti. Kontrolü geri aldın.")
             st.warning("Şimdi git, 5 dakika boyunca derin nefes al ve power-pose yap.")
-            
             st.session_state.current_page = "quit_smoking"
             st.rerun()
 
