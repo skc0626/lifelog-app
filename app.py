@@ -7,7 +7,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import pytz
-import random # YENİ: Rastgele motivasyon kartı seçmek için
+import random
 
 # --- SABİT MOTİVASYON KARTLARI ---
 MOTIVATION_CARDS = [
@@ -47,8 +47,7 @@ def get_google_sheet_client():
     return client
 
 # --- PERFORMANS İÇİN ÖNEMLİ: CACHE AYARLARI ---
-# Bu fonksiyon, veriyi 5 dakikada bir çekecek. Hızı artırır.
-@st.cache_data(ttl=300) # 300 saniye = 5 dakika
+@st.cache_data(ttl=300) 
 def get_all_sheet_data(tab_name):
     """Belirtilen sekmedeki tüm veriyi çeker (5 dakikalık cache ile)."""
     try:
@@ -56,7 +55,6 @@ def get_all_sheet_data(tab_name):
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
         return sheet.get_all_records()
     except Exception as e:
-        # st.error(f"Sheet okuma hatası ({tab_name}): {e}")
         return []
 
 # --- YARDIMCI VERİ FONKSİYONLARI ---
@@ -82,7 +80,6 @@ def get_settings():
     except: return defaults
 
 def save_settings(new_settings):
-    # Ayarlar değişince cache'i temizle
     get_all_sheet_data.clear() 
     try:
         client = get_google_sheet_client()
@@ -99,11 +96,9 @@ def save_settings(new_settings):
 
 @st.cache_data(ttl=300)
 def get_dashboard_data():
-    """Tüm modüllerden özet verileri çeker (Optimize Edildi)."""
     stats = {}
     today = get_tr_now().date()
 
-    # Data Çekme (Cache'li)
     m_data = get_all_sheet_data("Money")
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
@@ -147,7 +142,6 @@ def get_dashboard_data():
     return stats
 
 def get_gym_history(current_program):
-    # Bu veriye anlık ihtiyacımız olduğu için cache yapısını değiştirmedik
     try:
         data = get_all_sheet_data("Gym") 
         if not data: return {}
@@ -179,7 +173,7 @@ def get_gym_history(current_program):
 
 # --- KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
-    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
+    get_all_sheet_data.clear() 
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -190,7 +184,7 @@ def save_to_sheet(tab_name, row_data):
         return False
 
 def save_batch_to_sheet(tab_name, rows_data):
-    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
+    get_all_sheet_data.clear() 
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -215,14 +209,14 @@ if "ai_nutrition_result" not in st.session_state: st.session_state.ai_nutrition_
 if "ai_text_result" not in st.session_state: st.session_state.ai_text_result = None
 if "user_settings" not in st.session_state: st.session_state.user_settings = get_settings()
 if "camera_active" not in st.session_state: st.session_state.camera_active = False
-if "current_motivation_card" not in st.session_state: st.session_state.current_motivation_card = None # Yeni
+if "current_motivation_card" not in st.session_state: st.session_state.current_motivation_card = None 
 
 def navigate_to(page):
     st.session_state.current_page = page
     st.session_state.camera_active = False
     st.session_state.ai_nutrition_result = None
     st.session_state.ai_text_result = None
-    st.session_state.current_motivation_card = None # Sayfa değişince kart temizlensin
+    st.session_state.current_motivation_card = None 
 
 def open_camera(): st.session_state.camera_active = True; st.session_state.ai_nutrition_result = None 
 def close_camera(): st.session_state.camera_active = False
@@ -370,7 +364,6 @@ def render_quit_smoking():
         start_dt = datetime.datetime.combine(quit_date, datetime.time())
         delta = now - start_dt.replace(tzinfo=pytz.timezone('Europe/Istanbul'))
     except Exception:
-        # Eğer tarih veya saat hatası olursa, sadece günü alalım
         delta = now - datetime.datetime.combine(quit_date, datetime.time())
         
     total_seconds = int(delta.total_seconds())
@@ -390,23 +383,19 @@ def render_quit_smoking():
     st.subheader("🚨 Acil Müdahale")
 
     if st.button("🚨 Canım Sigara İstedi", type="primary", use_container_width=True):
-        # Rastgele kartı seç ve session state'e kaydet
         st.session_state.current_motivation_card = random.choice(MOTIVATION_CARDS)
-        st.session_state.current_page = "smoking_intervention" # Kriz formuna yönlendir
+        st.session_state.current_page = "smoking_intervention" 
         st.rerun()
 
 def render_smoking_intervention():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("quit_smoking",), type="secondary")
     st.title("💡 Kontrol Sende")
-
-    # Rastgele seçilen kartı çek
+    
     motivation_card = st.session_state.get('current_motivation_card')
 
     if motivation_card:
-        # Hatırlatıcı Metin (Kişisel Değerler)
         st.error("DUR. Kontrol Sende.", icon="🛑")
         
-        # Motivasyon Kartı (Rastgele Seçim)
         with st.container(border=True):
             st.markdown(f"**Neden Bıraktığını Unutma:**")
             st.markdown(motivation_card, unsafe_allow_html=True)
@@ -416,20 +405,17 @@ def render_smoking_intervention():
     with st.form("intervention_form"):
         st.subheader("Zihinsel Çevrim (5 Dakika Kuralı)")
         
-        # Soru 1: Kök Sebep (Sürtünmesiz giriş)
         root_cause = st.selectbox(
             "1. Şu anki isteğin asıl nedeni ne? (Seçim zorunlu değil)",
             ["Can sıkıntısı", "Stres/Kaygı", "Kahve/Alkol", "Sosyal Alışkanlık", "Diğer/Tanımlanamayan", "Seçmedim/Önemli Değğil"]
         )
 
-        # Soru 2: Çıktı Analizi (Rasyonel Dışavurum)
         output_analysis = st.text_area(
             "2. Bununla neyi çözmeye çalışıyorsun? (Ne bekliyorsun?)",
             placeholder="Örn: 'Sadece elim dolsun istiyorum.' / 'Toplantı stresini atacağım.'",
             max_chars=200
         )
 
-        # Soru 3: Mühendislik Kararı (Gelecek Sen)
         future_decision = st.radio(
             "3. Eğer şimdi içersen, bu kararı 10 dakika sonra rasyonel ve doğru bulur musun?",
             ["Hayır, pişman olurum.", "Evet, rahatlarım.", "Emin değilim."],
@@ -437,29 +423,258 @@ def render_smoking_intervention():
         )
 
         if st.form_submit_button("Krizi Logla ve Kontrolü Geri Al", type="primary", use_container_width=True):
-            # Normalde buraya Sheets'e kayıt kodu yazılır
-            
-            # Kayıt başarılı olursa
             st.success("Kriz Loglandı. Görevin bitti. Kontrolü geri aldın.")
             st.warning("Şimdi git, 5 dakika boyunca derin nefes al ve power-pose yap.")
             
             st.session_state.current_page = "quit_smoking"
             st.rerun()
-# ==========================================
-# DİĞER MODÜLLER (Money, Nutrition, Sport, Productivity)
-# ==========================================
-# (Kalan modüller aynı kaldığı için kod tekrarını önlemek amacıyla atlanmıştır, 
-# tam kod yukarıda mevcuttur.)
 
-# --- RENDER MONEY, NUTRITION, SPORT, PRODUCTIVITY ---
-# (Önceki kodlardan kopyalandı)
-#...
-#...
+# ==========================================
+# 🥗 NUTRITION MODÜLÜ
+# ==========================================
+def render_nutrition():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🥗 Beslenme")
+
+    targets = st.session_state.user_settings
+    stats = get_dashboard_data()
+    
+    with st.container(border=True):
+        col1, col2, col3, col4 = st.columns(4)
+        def show_metric(col, label, current, target, unit=""):
+            col.markdown(f"<p style='margin:0; font-size:0.8rem; color:grey;'>{label}</p>", unsafe_allow_html=True)
+            col.markdown(f"<h3 style='margin:0;'>{int(current)} <span style='font-size:0.8rem; color:grey;'>/ {int(target)}{unit}</span></h3>", unsafe_allow_html=True)
+
+        show_metric(col1, "Kalori", stats.get('cal', 0), targets['target_cal'])
+        show_metric(col2, "Protein", stats.get('prot', 0), targets['target_prot'], "g")
+        show_metric(col3, "Karb", stats.get('karb', 0), targets['target_karb'], "g")
+        show_metric(col4, "Yağ", stats.get('yag', 0), targets['target_yag'], "g")
+    
+    st.write("") 
+
+    tab1, tab2, tab3 = st.tabs(["📸 Fotoğraf", "✍️ Yazarak", "📝 Manuel"])
+    
+    with tab1:
+        img_file = st.file_uploader("Tabak Fotoğrafı", type=["jpg", "png", "jpeg"])
+        st.write("veya")
+        if not st.session_state.camera_active:
+            st.button("📸 Kamera", on_click=open_camera, use_container_width=True)
+            camera_file = None
+        else:
+            st.button("❌ Kapat", on_click=close_camera, type="secondary", use_container_width=True)
+            camera_file = st.camera_input("Çek")
+        
+        extra_bilgi = st.text_input("Ek Bilgi (Opsiyonel)", placeholder="Örn: Yağsız, 2 yumurta...")
+        
+        image = None
+        if camera_file: image = Image.open(camera_file)
+        elif img_file: image = Image.open(img_file)
+        
+        if image:
+            st.image(image, width=300)
+            if st.button("🔥 Analiz Et", type="primary", use_container_width=True):
+                with st.spinner("AI Analiz Yapıyor..."):
+                    try:
+                        prompt = f"""
+                        GÖREV: Bu yemek fotoğrafını analiz et. NOT: {extra_bilgi}
+                        TALİMAT: Protein kaynaklarının ÇİĞ ağırlığını baz al.
+                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "X", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
+                        """
+                        response = model.generate_content([prompt, image], generation_config={"response_mime_type": "application/json"})
+                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+                        
+                        st.session_state.ai_nutrition_result = {
+                            "yemek": data.get("yemek_adi", "Bilinmeyen"),
+                            "cal": int(data.get("tahmini_toplam_kalori", 0)),
+                            "p": float(data.get("protein", 0)),
+                            "k": float(data.get("karb", 0)),
+                            "y": float(data.get("yag", 0))
+                        }
+                    except Exception as e: st.error(f"Hata: {e}")
+
+            if st.session_state.ai_nutrition_result:
+                res = st.session_state.ai_nutrition_result
+                st.success(f"Tespit: {res['yemek']}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Kal", res['cal'])
+                c2.metric("Pro", f"{res['p']}g")
+                c3.metric("Karb", f"{res['k']}g")
+                c4.metric("Yağ", f"{res['y']}g")
+                
+                if st.button("💾 Öğünü Kaydet", key="btn_save_photo", use_container_width=True):
+                    tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                    veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Foto"]
+                    with st.spinner("Kaydediliyor..."):
+                        if save_to_sheet("Nutrition", veri):
+                            st.toast(f"Kaydedildi!", icon="✅")
+                            st.session_state.ai_nutrition_result = None
+
+    with tab2:
+        text_input = st.text_area("Ne yedin?", placeholder="Örn: 50g yulaf, 1 muz")
+        if st.button("Hesapla", type="primary", use_container_width=True):
+            if text_input:
+                with st.spinner("Hesaplanıyor..."):
+                    try:
+                        prompt = f"""
+                        GÖREV: Besin değerlerini hesapla: "{text_input}"
+                        ÇIKTI (Sadece JSON): {{ "yemek_adi": "Özet", "tahmini_toplam_kalori": 0, "protein": 0, "karb": 0, "yag": 0 }}
+                        """
+                        response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+                        data = json.loads(response.text.replace("```json", "").replace("```", "").strip())
+                        st.session_state.ai_text_result = {
+                            "yemek": data.get("yemek_adi", text_input),
+                            "cal": int(data.get("tahmini_toplam_kalori", 0)),
+                            "p": float(data.get("protein", 0)),
+                            "k": float(data.get("karb", 0)),
+                            "y": float(data.get("yag", 0))
+                        }
+                    except Exception as e: st.error(f"Hata: {e}")
+
+        if st.session_state.ai_text_result:
+            res = st.session_state.ai_text_result
+            st.info(f"{res['yemek']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Kal", res['cal'])
+            c2.metric("Pro", f"{res['p']}g")
+            c3.metric("Karb", f"{res['k']}g")
+            c4.metric("Yağ", f"{res['y']}g")
+            
+            if st.button("💾 Kaydet", key="btn_save_text", use_container_width=True):
+                tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, res['yemek'], res['cal'], res['p'], res['k'], res['y'], "AI Metin"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Nutrition", veri):
+                        st.toast(f"Kaydedildi!", icon="✅")
+                        st.session_state.ai_text_result = None
+
+    with tab3:
+        with st.form("manuel_nutrition_form"):
+            yemek_adi = st.text_input("Yemek Adı", placeholder="Örn: Protein Shake")
+            c1, c2 = st.columns(2)
+            with c1:
+                cal = st.number_input("Kalori", step=10)
+                prot = st.number_input("Protein", step=1)
+            with c2:
+                karb = st.number_input("Karb", step=1)
+                yag = st.number_input("Yağ", step=1)
+            
+            if st.form_submit_button("💾 Kaydet", type="primary", use_container_width=True):
+                tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, yemek_adi, cal, prot, karb, yag, "Manuel"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Nutrition", veri):
+                        st.success(f"Kaydedildi!")
+
+# ==========================================
+# 💸 MONEY MODÜLÜ
+# ==========================================
+def render_money():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("💸 Finans")
+    
+    stats = get_dashboard_data()
+    
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        c1.metric("Bugün", f"{stats.get('money_total', 0):,.2f} ₺")
+        c2.metric("Bu Ay", f"{stats.get('money_month', 0):,.2f} ₺")
+    
+    st.write("")
+
+    with st.form("harcama_formu", clear_on_submit=True):
+        tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
+        c1, c2 = st.columns(2)
+        with c1:
+            kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
+        with c2:
+            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
+        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
+        durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
+        
+        if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+            if tutar > 0:
+                tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Money", veri):
+                        st.success(f"✅ {tutar} TL Kaydedildi")
+            else: st.warning("Tutar gir.")
+
+# ==========================================
+# 🏋️‍♂️ SPOR MODÜLÜ
+# ==========================================
+def render_sport():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🏋️‍♂️ Antrenman")
+
+    program_listesi = list(ANTRENMAN_PROGRAMI.keys())
+    secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
+    st.divider()
+
+    with st.spinner("Geçmiş yükleniyor..."):
+        history_data = get_gym_history(secilen_program)
+    
+    with st.form("gym_form"):
+        hareketler = ANTRENMAN_PROGRAMI[secilen_program]
+        for hareket_veri in hareketler:
+            hareket_adi = hareket_veri["ad"]
+            set_sayisi = hareket_veri["set"]
+            hedef_bilgi = hareket_veri.get("hedef", "")
+            
+            st.markdown(f"### 📌 {hareket_adi}")
+            
+            if hareket_adi in history_data:
+                h = history_data[hareket_adi]
+                st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
+                if h['not']: st.caption(f"📝 Not: {h['not']}")
+            else: st.caption("Bu programda henüz kayıt yok.")
+
+            if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
+            
+            for i in range(0, set_sayisi, 3):
+                cols = st.columns(3)
+                for j in range(3):
+                    set_num = i + j + 1
+                    if set_num <= set_sayisi:
+                        with cols[j]:
+                            st.markdown(f"**Set {set_num}**")
+                            st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
+                            st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
+            st.markdown("---") 
+
+        notlar = st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
+        
+        if st.form_submit_button("Antrenmanı Bitir", type="primary", use_container_width=True):
+            toplanacak_veri = []
+            tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+            for hareket_veri in hareketler:
+                h_adi = hareket_veri["ad"]
+                h_set = hareket_veri["set"]
+                for s in range(1, h_set + 1):
+                    kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
+                    rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
+                    if kg_val and rep_val:
+                        satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
+                        toplanacak_veri.append(satir)
+            
+            if toplanacak_veri:
+                with st.spinner("Kaydediliyor..."):
+                    if save_batch_to_sheet("Gym", toplanacak_veri):
+                        st.balloons()
+                        st.success(f"✅ Kaydedildi!")
+            else: st.warning("Boş kayıt girilemez.")
+
+# ==========================================
+# 🚀 PRODUCTIVITY MODÜLÜ
+# ==========================================
+def render_productivity():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🚀 Üretkenlik")
+    st.info("Yakında...")
 
 # ==========================================
 # ROUTER
 # ==========================================
-#... (Render fonksiyonları yerinde)
 if st.session_state.current_page == "home": render_home()
 elif st.session_state.current_page == "money": render_money()
 elif st.session_state.current_page == "nutrition": render_nutrition()
