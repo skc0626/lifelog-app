@@ -320,7 +320,7 @@ def render_home():
     with col3:
         st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True, type="primary")
     with col4:
-        st.button("🧠 Bilişsel Büyüme", on_click=navigate_to, args=("media_log",), use_container_width=True, type="primary") # Yeni Buton
+        st.button("🧠 Film/Dizi/Kitap", on_click=navigate_to, args=("media_log",), use_container_width=True, type="primary") # Yeni Buton
 
     st.divider()
 
@@ -336,7 +336,7 @@ def render_home():
 # ==========================================
 def render_media_log():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🧠 Bilişsel Büyüme")
+    st.title("🧠 Film/Dizi/Kitap")
     st.caption("Ne izlediğini değil, ne öğrendiğini kaydet.")
     
     with st.container(border=True):
@@ -763,3 +763,4 @@ elif st.session_state.current_page == "quit_smoking": render_quit_smoking()
 elif st.session_state.current_page == "smoking_intervention": render_smoking_intervention()
 elif st.session_state.current_page == "productivity": render_productivity()
 elif st.session_state.current_page == "media_log": render_media_log()
+
