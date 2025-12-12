@@ -102,7 +102,7 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
-    p_data = get_all_sheet_data("Productivity")
+    # p_data dashboardda kullanılmadığı için çekilmiyor
 
     # 1. Money
     if m_data:
@@ -165,23 +165,6 @@ def get_dashboard_data():
             else: stats['last_weight'] = None
         else: stats['last_weight'] = None
     else: stats['last_weight'] = None
-    
-    # 5. Productivity (Yeni Mantık)
-    stats['prod_kitap'] = False
-    stats['prod_ev'] = False
-    stats['prod_not'] = False
-    
-    if p_data:
-        df_p = pd.DataFrame(p_data)
-        if "Tarih" in df_p.columns:
-            df_p["Tarih"] = pd.to_datetime(df_p["Tarih"], errors='coerce')
-            daily_p = df_p[df_p["Tarih"].dt.date == today]
-            if not daily_p.empty:
-                last_p = daily_p.iloc[-1] # Son kaydı al
-                stats['prod_kitap'] = str(last_p.get("Kitap Okuma", "")).upper() == "EVET"
-                stats['prod_ev'] = str(last_p.get("Ev Düzeni", "")).upper() == "EVET"
-                # Not sütunu doluysa yapıldı say
-                stats['prod_not'] = len(str(last_p.get("Iyi Yapilanlar", ""))) > 3 
     
     return stats
 
@@ -271,7 +254,6 @@ def render_home():
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y %A')}")
     
-    # Canlı çekilen veriler
     stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
@@ -296,24 +278,24 @@ def render_home():
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
 
-    # --- KART 2: ÜRETKENLİK (YENİ) ---
+    # --- KART 2: KİLO & SPOR (GERİ GELDİ) ---
     c3, c4 = st.columns(2)
     
     with c3:
         with st.container(border=True):
-            st.markdown("### 🚀 Üretkenlik")
-            # Durumlar
-            kitap_icon = "✅" if stats.get('prod_kitap') else "⬜"
-            ev_icon = "✅" if stats.get('prod_ev') else "⬜"
-            not_icon = "📝" if stats.get('prod_not') else "⬜"
+            st.markdown("### ⚖️ Kilo")
+            last_w = stats.get('last_weight')
+            last_w_date = stats.get('last_weight_date')
             
-            st.markdown(f"{kitap_icon} 20 Dk Kitap")
-            st.markdown(f"{ev_icon} Ev Düzeni")
-            st.markdown(f"{not_icon} Günün Notu")
+            if last_w:
+                st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{last_w} kg</h2>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Son: {last_w_date}</p>", unsafe_allow_html=True)
+            else:
+                st.info("Veri yok")
 
     with c4:
         with st.container(border=True):
-            st.markdown("### 🏋️‍♂️ Spor")
+            st.markdown("### 🏋️‍♂️ Spor Geçmişi")
             workouts = stats.get('last_workouts', [])
             if workouts:
                 for w_name, w_date in workouts:
@@ -324,31 +306,34 @@ def render_home():
     st.write("") 
     st.write("### Menü")
     
+    # Ana Modüller (Primary)
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
-        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
+        st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
-        st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
-            
+        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
+    
+    # Üretkenlik En Altta ve Kırmızı (Primary)
+    st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True, type="primary")
+
     st.divider()
+
+    # Pasif Modüller (Secondary - Gri)
     col3, col4 = st.columns(2)
     with col3:
-        st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True) # Yeni modül
+        st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True, type="secondary")
     with col4:
-        st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True)
-        st.button("⚖️ Kilo", on_click=navigate_to, args=("weight",), use_container_width=True)
+        st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
 
 # ==========================================
-# 🚀 PRODUCTIVITY MODÜLÜ (YENİLENMİŞ)
+# 🚀 PRODUCTIVITY MODÜLÜ
 # ==========================================
 def render_productivity():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🚀 Üretkenlik (Günlük Disiplin)")
     st.subheader(f"Bugün: {get_tr_now().strftime('%d.%m.%Y')}")
-
-    # Bugün daha önce kayıt var mı kontrolü (opsiyonel ama iyi olurdu, şimdilik sadece form)
     
     with st.container(border=True):
         st.info("Disiplin için her gün bu 3 görevi tamamla.")
@@ -364,20 +349,16 @@ def render_productivity():
             text_good = st.text_area("🌟 Gün içinde neyi iyi yaptım?", placeholder="Bugün başardığın küçük veya büyük bir şey yaz...")
             
             if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
-                # Validasyon: Not yazılmalı mı?
                 if not text_good.strip():
                     st.warning("Lütfen günün iyi geçen kısmını yaz.")
                 else:
                     tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
-                    
-                    # Veri Hazırlığı
                     veri = [
                         tarih,
                         "EVET" if check_book else "HAYIR",
                         "EVET" if check_tidy else "HAYIR",
                         text_good
                     ]
-                    
                     with st.spinner("Kaydediliyor..."):
                         if save_to_sheet("Productivity", veri):
                             st.success("✅ Üretkenlik günlüğü kaydedildi!")
