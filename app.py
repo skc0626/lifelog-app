@@ -102,6 +102,7 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
+    p_data = get_all_sheet_data("Productivity")
 
     # 1. Money
     if m_data:
@@ -164,6 +165,23 @@ def get_dashboard_data():
             else: stats['last_weight'] = None
         else: stats['last_weight'] = None
     else: stats['last_weight'] = None
+    
+    # 5. Productivity (Yeni Mantık)
+    stats['prod_kitap'] = False
+    stats['prod_ev'] = False
+    stats['prod_not'] = False
+    
+    if p_data:
+        df_p = pd.DataFrame(p_data)
+        if "Tarih" in df_p.columns:
+            df_p["Tarih"] = pd.to_datetime(df_p["Tarih"], errors='coerce')
+            daily_p = df_p[df_p["Tarih"].dt.date == today]
+            if not daily_p.empty:
+                last_p = daily_p.iloc[-1] # Son kaydı al
+                stats['prod_kitap'] = str(last_p.get("Kitap Okuma", "")).upper() == "EVET"
+                stats['prod_ev'] = str(last_p.get("Ev Düzeni", "")).upper() == "EVET"
+                # Not sütunu doluysa yapıldı say
+                stats['prod_not'] = len(str(last_p.get("Iyi Yapilanlar", ""))) > 3 
     
     return stats
 
@@ -253,7 +271,7 @@ def render_home():
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y %A')}")
     
-    # Cache YOK, her seferinde canlı çek
+    # Canlı çekilen veriler
     stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
@@ -278,24 +296,24 @@ def render_home():
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
 
-    # --- KART 2: VÜCUT & SPOR ---
+    # --- KART 2: ÜRETKENLİK (YENİ) ---
     c3, c4 = st.columns(2)
     
     with c3:
         with st.container(border=True):
-            st.markdown("### ⚖️ Kilo")
-            last_w = stats.get('last_weight')
-            last_w_date = stats.get('last_weight_date')
+            st.markdown("### 🚀 Üretkenlik")
+            # Durumlar
+            kitap_icon = "✅" if stats.get('prod_kitap') else "⬜"
+            ev_icon = "✅" if stats.get('prod_ev') else "⬜"
+            not_icon = "📝" if stats.get('prod_not') else "⬜"
             
-            if last_w:
-                st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{last_w} kg</h2>", unsafe_allow_html=True)
-                st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Son: {last_w_date}</p>", unsafe_allow_html=True)
-            else:
-                st.info("Veri yok")
+            st.markdown(f"{kitap_icon} 20 Dk Kitap")
+            st.markdown(f"{ev_icon} Ev Düzeni")
+            st.markdown(f"{not_icon} Günün Notu")
 
     with c4:
         with st.container(border=True):
-            st.markdown("### 🏋️‍♂️ Spor Geçmişi")
+            st.markdown("### 🏋️‍♂️ Spor")
             workouts = stats.get('last_workouts', [])
             if workouts:
                 for w_name, w_date in workouts:
@@ -317,12 +335,57 @@ def render_home():
     st.divider()
     col3, col4 = st.columns(2)
     with col3:
-        st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True)
+        st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True) # Yeni modül
     with col4:
         st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True)
+        st.button("⚖️ Kilo", on_click=navigate_to, args=("weight",), use_container_width=True)
 
 # ==========================================
-# ⚙️ SETTINGS MODÜLÜ
+# 🚀 PRODUCTIVITY MODÜLÜ (YENİLENMİŞ)
+# ==========================================
+def render_productivity():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🚀 Üretkenlik (Günlük Disiplin)")
+    st.subheader(f"Bugün: {get_tr_now().strftime('%d.%m.%Y')}")
+
+    # Bugün daha önce kayıt var mı kontrolü (opsiyonel ama iyi olurdu, şimdilik sadece form)
+    
+    with st.container(border=True):
+        st.info("Disiplin için her gün bu 3 görevi tamamla.")
+        
+        with st.form("prod_form"):
+            # 1 ve 2: Checkbox
+            check_book = st.checkbox("📚 20 Dakika Kitap Okuma")
+            check_tidy = st.checkbox("🧹 Evin Toplanması / Düzenlenmesi")
+            
+            st.divider()
+            
+            # 3: Metin Alanı
+            text_good = st.text_area("🌟 Gün içinde neyi iyi yaptım?", placeholder="Bugün başardığın küçük veya büyük bir şey yaz...")
+            
+            if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+                # Validasyon: Not yazılmalı mı?
+                if not text_good.strip():
+                    st.warning("Lütfen günün iyi geçen kısmını yaz.")
+                else:
+                    tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                    
+                    # Veri Hazırlığı
+                    veri = [
+                        tarih,
+                        "EVET" if check_book else "HAYIR",
+                        "EVET" if check_tidy else "HAYIR",
+                        text_good
+                    ]
+                    
+                    with st.spinner("Kaydediliyor..."):
+                        if save_to_sheet("Productivity", veri):
+                            st.success("✅ Üretkenlik günlüğü kaydedildi!")
+                            st.session_state.current_page = "home"
+                            st.rerun()
+
+# ==========================================
+# DİĞER MODÜLLER
 # ==========================================
 def render_settings():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -352,9 +415,6 @@ def render_settings():
                         st.session_state.user_settings = new_settings
                         st.success("Ayarlar güncellendi! ✅")
 
-# ==========================================
-# ⚖️ KİLO MODÜLÜ
-# ==========================================
 def render_weight():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("⚖️ Kilo Takibi")
@@ -370,9 +430,6 @@ def render_weight():
                             st.success(f"✅ {kilo} kg kaydedildi.")
                 else: st.warning("Kilo girmeyi unuttun.")
 
-# ==========================================
-# 🚭 SİGARA BIRAKMA MODÜLÜ
-# ==========================================
 def render_quit_smoking():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🚭 Sigarasız Yaşam")
@@ -451,9 +508,6 @@ def render_smoking_intervention():
             st.session_state.current_page = "quit_smoking"
             st.rerun()
 
-# ==========================================
-# 🥗 NUTRITION MODÜLÜ
-# ==========================================
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🥗 Beslenme")
@@ -587,9 +641,6 @@ def render_nutrition():
                     if save_to_sheet("Nutrition", veri):
                         st.success(f"Kaydedildi!")
 
-# ==========================================
-# 💸 MONEY MODÜLÜ
-# ==========================================
 def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("💸 Finans")
@@ -622,9 +673,6 @@ def render_money():
                         st.success(f"✅ {tutar} TL Kaydedildi")
             else: st.warning("Tutar gir.")
 
-# ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ
-# ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🏋️‍♂️ Antrenman")
@@ -685,14 +733,6 @@ def render_sport():
                         st.balloons()
                         st.success(f"✅ Kaydedildi!")
             else: st.warning("Boş kayıt girilemez.")
-
-# ==========================================
-# 🚀 PRODUCTIVITY MODÜLÜ
-# ==========================================
-def render_productivity():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🚀 Üretkenlik")
-    st.info("Yakında...")
 
 # ==========================================
 # ROUTER
