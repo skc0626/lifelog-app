@@ -102,7 +102,6 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
-    # p_data ve media_data dashboardda kullanılmadığı için çekilmiyor
 
     # 1. Money
     if m_data:
@@ -320,7 +319,7 @@ def render_home():
     with col3:
         st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True, type="primary")
     with col4:
-        st.button("🧠 Film/Dizi/Kitap", on_click=navigate_to, args=("media_log",), use_container_width=True, type="primary") # Yeni Buton
+        st.button("📚 Film/Dizi/Kitap", on_click=navigate_to, args=("media_log",), use_container_width=True, type="primary") 
 
     st.divider()
 
@@ -332,11 +331,11 @@ def render_home():
         st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
 
 # ==========================================
-# 🧠 MEDYA LOG MODÜLÜ (YENİ)
+# 🧠 MEDYA LOG MODÜLÜ (YENİLENMİŞ)
 # ==========================================
 def render_media_log():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🧠 Film/Dizi/Kitap")
+    st.title("📚 Film/Dizi/Kitap Takibi")
     st.caption("Ne izlediğini değil, ne öğrendiğini kaydet.")
     
     with st.container(border=True):
@@ -399,6 +398,71 @@ def render_productivity():
                             st.success("✅ Üretkenlik günlüğü kaydedildi!")
                             st.session_state.current_page = "home"
                             st.rerun()
+
+# ==========================================
+# 🏋️‍♂️ SPOR MODÜLÜ (GÜNCELLENDİ: EXPANDER)
+# ==========================================
+def render_sport():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🏋️‍♂️ Antrenman")
+
+    program_listesi = list(ANTRENMAN_PROGRAMI.keys())
+    secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
+    st.divider()
+
+    with st.spinner("Geçmiş yükleniyor..."):
+        history_data = get_gym_history(secilen_program)
+    
+    with st.form("gym_form"):
+        hareketler = ANTRENMAN_PROGRAMI[secilen_program]
+        for hareket_veri in hareketler:
+            hareket_adi = hareket_veri["ad"]
+            set_sayisi = hareket_veri["set"]
+            hedef_bilgi = hareket_veri.get("hedef", "")
+            
+            # EXPANDER YAPISI: Her hareketi bir kutu içine al
+            with st.expander(f"📌 {hareket_adi}", expanded=False):
+                
+                if hareket_adi in history_data:
+                    h = history_data[hareket_adi]
+                    st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
+                    if h['not']: st.caption(f"📝 Not: {h['not']}")
+                else: st.caption("Bu programda henüz kayıt yok.")
+
+                if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
+                
+                for i in range(0, set_sayisi, 3):
+                    cols = st.columns(3)
+                    for j in range(3):
+                        set_num = i + j + 1
+                        if set_num <= set_sayisi:
+                            with cols[j]:
+                                st.markdown(f"**Set {set_num}**")
+                                st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
+                                st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
+                
+        st.markdown("---")
+        notlar = st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
+        
+        if st.form_submit_button("Antrenmanı Bitir", type="primary", use_container_width=True):
+            toplanacak_veri = []
+            tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+            for hareket_veri in hareketler:
+                h_adi = hareket_veri["ad"]
+                h_set = hareket_veri["set"]
+                for s in range(1, h_set + 1):
+                    kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
+                    rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
+                    if kg_val and rep_val:
+                        satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
+                        toplanacak_veri.append(satir)
+            
+            if toplanacak_veri:
+                with st.spinner("Kaydediliyor..."):
+                    if save_batch_to_sheet("Gym", toplanacak_veri):
+                        st.balloons()
+                        st.success(f"✅ Kaydedildi!")
+            else: st.warning("Boş kayıt girilemez.")
 
 # ==========================================
 # DİĞER MODÜLLER
@@ -689,67 +753,6 @@ def render_money():
                         st.success(f"✅ {tutar} TL Kaydedildi")
             else: st.warning("Tutar gir.")
 
-def render_sport():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🏋️‍♂️ Antrenman")
-
-    program_listesi = list(ANTRENMAN_PROGRAMI.keys())
-    secilen_program = st.selectbox("Antrenman Seç:", program_listesi)
-    st.divider()
-
-    with st.spinner("Geçmiş yükleniyor..."):
-        history_data = get_gym_history(secilen_program)
-    
-    with st.form("gym_form"):
-        hareketler = ANTRENMAN_PROGRAMI[secilen_program]
-        for hareket_veri in hareketler:
-            hareket_adi = hareket_veri["ad"]
-            set_sayisi = hareket_veri["set"]
-            hedef_bilgi = hareket_veri.get("hedef", "")
-            
-            st.markdown(f"### 📌 {hareket_adi}")
-            
-            if hareket_adi in history_data:
-                h = history_data[hareket_adi]
-                st.info(f"📅 Son ({h['tarih']}):\n\n{h['ozet']}", icon="⏮️")
-                if h['not']: st.caption(f"📝 Not: {h['not']}")
-            else: st.caption("Bu programda henüz kayıt yok.")
-
-            if hedef_bilgi: st.caption(f"🎯 Hedef: **{hedef_bilgi}**")
-            
-            for i in range(0, set_sayisi, 3):
-                cols = st.columns(3)
-                for j in range(3):
-                    set_num = i + j + 1
-                    if set_num <= set_sayisi:
-                        with cols[j]:
-                            st.markdown(f"**Set {set_num}**")
-                            st.text_input("kg", key=f"{hareket_adi}_s{set_num}_kg", label_visibility="collapsed", placeholder="Kg")
-                            st.text_input("rep", key=f"{hareket_adi}_s{set_num}_rep", label_visibility="collapsed", placeholder="Tk")
-            st.markdown("---") 
-
-        notlar = st.text_area("Antrenman Notları", placeholder="Pump nasıldı?")
-        
-        if st.form_submit_button("Antrenmanı Bitir", type="primary", use_container_width=True):
-            toplanacak_veri = []
-            tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
-            for hareket_veri in hareketler:
-                h_adi = hareket_veri["ad"]
-                h_set = hareket_veri["set"]
-                for s in range(1, h_set + 1):
-                    kg_val = st.session_state.get(f"{h_adi}_s{s}_kg", "").strip()
-                    rep_val = st.session_state.get(f"{h_adi}_s{s}_rep", "").strip()
-                    if kg_val and rep_val:
-                        satir = [tarih, secilen_program, h_adi, s, kg_val, rep_val, notlar]
-                        toplanacak_veri.append(satir)
-            
-            if toplanacak_veri:
-                with st.spinner("Kaydediliyor..."):
-                    if save_batch_to_sheet("Gym", toplanacak_veri):
-                        st.balloons()
-                        st.success(f"✅ Kaydedildi!")
-            else: st.warning("Boş kayıt girilemez.")
-
 # ==========================================
 # ROUTER
 # ==========================================
@@ -763,4 +766,3 @@ elif st.session_state.current_page == "quit_smoking": render_quit_smoking()
 elif st.session_state.current_page == "smoking_intervention": render_smoking_intervention()
 elif st.session_state.current_page == "productivity": render_productivity()
 elif st.session_state.current_page == "media_log": render_media_log()
-
