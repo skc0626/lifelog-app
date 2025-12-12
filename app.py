@@ -25,7 +25,7 @@ st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 def get_tr_now():
     return datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
 
-# --- GÜVENLİK VE AYARLAR ---
+# --- GÜVENLİK ---
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
     gcp_secrets = st.secrets["gcp_service_account"]
@@ -46,15 +46,14 @@ def get_google_sheet_client():
     client = gspread.authorize(creds)
     return client
 
-# --- OPTİMİZE EDİLMİŞ VERİ ÇEKME (CACHE) ---
-# 60 saniyelik cache. Hem hızlı hem güncel.
-@st.cache_data(ttl=60) 
+# --- VERİ ÇEKME (CACHE YOK - CANLI) ---
 def get_all_sheet_data(tab_name):
+    """Belirtilen sekmedeki tüm veriyi ANLIK çeker."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
         return sheet.get_all_records()
-    except:
+    except Exception as e:
         return []
 
 # --- YARDIMCI FONKSİYONLAR ---
@@ -80,7 +79,6 @@ def get_settings():
     except: return defaults
 
 def save_settings(new_settings):
-    get_all_sheet_data.clear() 
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet("Settings")
@@ -94,12 +92,12 @@ def save_settings(new_settings):
         st.error(f"Hata: {e}")
         return False
 
-# --- ANA DASHBOARD VERİSİ ---
-# Cache'i buradan kaldırdık, veriyi get_all_sheet_data yönetiyor artık.
+# --- DASHBOARD VERİSİ (CANLI) ---
 def get_dashboard_data():
     stats = {}
     today = get_tr_now().date()
 
+    # Her seferinde taze veri çek
     m_data = get_all_sheet_data("Money")
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
@@ -201,7 +199,6 @@ def get_gym_history(current_program):
 
 # --- KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
-    get_all_sheet_data.clear() # Cache temizle
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -212,7 +209,6 @@ def save_to_sheet(tab_name, row_data):
         return False
 
 def save_batch_to_sheet(tab_name, rows_data):
-    get_all_sheet_data.clear() # Cache temizle
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -257,7 +253,7 @@ def render_home():
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y %A')}")
     
-    # Spinner kaldırıldı, sessizce yükle
+    # Cache YOK, her seferinde canlı çek
     stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
@@ -313,7 +309,7 @@ def render_home():
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
-        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary") # HATA BURADAYDI, DÜZELDİ
+        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
         st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
