@@ -47,9 +47,10 @@ def get_google_sheet_client():
     return client
 
 # --- PERFORMANS İÇİN ÖNEMLİ: CACHE AYARLARI ---
-@st.cache_data(ttl=300) 
+# Cache süresini 60 saniyeye düşürdük. (daha hızlı refresh)
+@st.cache_data(ttl=60) 
 def get_all_sheet_data(tab_name):
-    """Belirtilen sekmedeki tüm veriyi çeker (5 dakikalık cache ile)."""
+    """Belirtilen sekmedeki tüm veriyi çeker (60 saniyelik cache ile)."""
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -94,11 +95,14 @@ def save_settings(new_settings):
         st.error(f"Hata: {e}")
         return False
 
-@st.cache_data(ttl=300)
+# --- KRİTİK DÜZELTME: CACHE KALDIRILDI ---
 def get_dashboard_data():
+    """Tüm modüllerden özet verileri çeker (CACHE KALDIRILDI)."""
+    # Bu fonksiyon artık takılma yapmamalı.
     stats = {}
     today = get_tr_now().date()
 
+    # Data Çekme (Cache'li)
     m_data = get_all_sheet_data("Money")
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
@@ -126,7 +130,7 @@ def get_dashboard_data():
     if g_data:
         df_g = pd.DataFrame(g_data); df_g["Tarih"] = pd.to_datetime(df_g["Tarih"], errors='coerce'); df_g = df_g.sort_values(by="Tarih", ascending=False)
         unique_sessions = df_g[['Tarih', 'Program']].drop_duplicates().head(3)
-        workout_list = []
+        workout_list = [];
         for _, row in unique_sessions.iterrows():
             d_str = row['Tarih'].strftime("%d.%m"); p_name = row['Program']
             workout_list.append((p_name, d_str))
@@ -173,8 +177,8 @@ def get_gym_history(current_program):
 
 # --- KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
-    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
-    get_dashboard_data.clear() # Dashboard cache'i de temizlensin
+    get_all_sheet_data.clear() 
+    # get_dashboard_data.clear() # Bu satırı sildik, çünkü cache'i zaten kaldırdık
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -185,8 +189,8 @@ def save_to_sheet(tab_name, row_data):
         return False
 
 def save_batch_to_sheet(tab_name, rows_data):
-    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
-    get_dashboard_data.clear() # Dashboard cache'i de temizlensin
+    get_all_sheet_data.clear() 
+    # get_dashboard_data.clear() # Bu satırı sildik, çünkü cache'i zaten kaldırdık
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -231,7 +235,9 @@ def render_home():
     tr_now = get_tr_now()
     st.caption(f"Tarih: {tr_now.strftime('%d.%m.%Y %A')}")
     
-    stats = get_dashboard_data()
+    # Hata oluştuğu varsayılan fonksiyon
+    with st.spinner("Dashboard verileri yükleniyor..."):
+        stats = get_dashboard_data()
     targets = st.session_state.user_settings
 
     # --- KART 1: FİNANS & BESLENME ---
@@ -286,7 +292,7 @@ def render_home():
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
-        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
+        st.button("🚭 Sigarayı Bırak", on_on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
         st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
