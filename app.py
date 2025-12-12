@@ -173,7 +173,8 @@ def get_gym_history(current_program):
 
 # --- KAYIT FONKSİYONLARI ---
 def save_to_sheet(tab_name, row_data):
-    get_all_sheet_data.clear() 
+    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
+    get_dashboard_data.clear() # Dashboard cache'i de temizlensin
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -184,7 +185,8 @@ def save_to_sheet(tab_name, row_data):
         return False
 
 def save_batch_to_sheet(tab_name, rows_data):
-    get_all_sheet_data.clear() 
+    get_all_sheet_data.clear() # Kayıt yapılınca cache temizlensin
+    get_dashboard_data.clear() # Dashboard cache'i de temizlensin
     try:
         client = get_google_sheet_client()
         sheet = client.open("LifeLog_DB").worksheet(tab_name)
@@ -194,7 +196,7 @@ def save_batch_to_sheet(tab_name, rows_data):
         st.error(f"Hata: {e}")
         return False
 
-# --- ANTRENMAN PROGRAMI ---
+# --- ANTRENMAN PROGRAMI (Kısaltıldı) ---
 ANTRENMAN_PROGRAMI = {
     "Push 1": [{"ad": "Bench Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Incline Dumbbell Press", "set": 4, "hedef": "6-8 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Cable Cross", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Overhead Press", "set": 4, "hedef": "8-10 Tk (RIR 1-2)"}, {"ad": "Lateral Raise", "set": 4, "hedef": "12-15 Tk (Beyond Failure)"}, {"ad": "Rear Delt", "set": 3, "hedef": "12-15 Tk (Beyond Failure)"}, {"ad": "Triceps Pushdown", "set": 4, "hedef": "8-10 Tk (Failure)"}],
     "Pull 1": [{"ad": "Lat Pulldown", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Barbell Row", "set": 4, "hedef": "8-10 Tk (RIR 1-2, Son set Failure)"}, {"ad": "Cable Row", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Rope Pullover", "set": 3, "hedef": "12-15 Tk (Failure)"}, {"ad": "Pull Up", "set": 1, "hedef": "1x Max (Failure)"}, {"ad": "Barbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"}, {"ad": "Dumbbell Curl", "set": 4, "hedef": "8-10 Tk (RIR 1, Failure)"}],
@@ -358,7 +360,6 @@ def render_quit_smoking():
         st.button("Ayarlar'a Git", on_click=navigate_to, args=("settings",))
         return
 
-    # Sayacın Hesaplanması
     now = get_tr_now()
     try:
         start_dt = datetime.datetime.combine(quit_date, datetime.time())
@@ -371,7 +372,6 @@ def render_quit_smoking():
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
 
-    # Ana Sayfa (Sayaç)
     with st.container(border=True):
         st.subheader("Sigarasız Geçen Süre")
         st.markdown(f"<h1 style='text-align: center; margin:0; padding:0; font-weight:700;'>{days} <span style='font-size:0.8em;'>Gün</span> {hours % 24} <span style='font-size:0.8em;'>Saat</span></h1>", unsafe_allow_html=True)
@@ -379,7 +379,6 @@ def render_quit_smoking():
 
     st.divider()
 
-    # --- KRİZ YÖNETİMİ ---
     st.subheader("🚨 Acil Müdahale")
 
     if st.button("🚨 Canım Sigara İstedi", type="primary", use_container_width=True):
