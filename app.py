@@ -102,7 +102,7 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
-    # p_data dashboardda kullanılmadığı için çekilmiyor
+    # p_data ve media_data dashboardda kullanılmadığı için çekilmiyor
 
     # 1. Money
     if m_data:
@@ -278,7 +278,7 @@ def render_home():
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
 
-    # --- KART 2: KİLO & SPOR (GERİ GELDİ) ---
+    # --- KART 2: KİLO & SPOR ---
     c3, c4 = st.columns(2)
     
     with c3:
@@ -306,7 +306,7 @@ def render_home():
     st.write("") 
     st.write("### Menü")
     
-    # Ana Modüller (Primary)
+    # Ana Modüller (Kırmızı)
     col1, col2 = st.columns(2)
     with col1:
         st.button("💸 Harcama Gir", on_click=navigate_to, args=("money",), use_container_width=True, type="primary")
@@ -315,17 +315,54 @@ def render_home():
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
         st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
     
-    # Üretkenlik En Altta ve Kırmızı (Primary)
-    st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True, type="primary")
+    # Yeni Modüller (Kırmızı)
+    col3, col4 = st.columns(2)
+    with col3:
+        st.button("🚀 Üretkenlik", on_click=navigate_to, args=("productivity",), use_container_width=True, type="primary")
+    with col4:
+        st.button("🧠 Bilişsel Büyüme", on_click=navigate_to, args=("media_log",), use_container_width=True, type="primary") # Yeni Buton
 
     st.divider()
 
-    # Pasif Modüller (Secondary - Gri)
-    col3, col4 = st.columns(2)
-    with col3:
+    # Pasif Modüller (Gri)
+    col5, col6 = st.columns(2)
+    with col5:
         st.button("⚖️ Kilo Takibi", on_click=navigate_to, args=("weight",), use_container_width=True, type="secondary")
-    with col4:
+    with col6:
         st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
+
+# ==========================================
+# 🧠 MEDYA LOG MODÜLÜ (YENİ)
+# ==========================================
+def render_media_log():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🧠 Bilişsel Büyüme")
+    st.caption("Ne izlediğini değil, ne öğrendiğini kaydet.")
+    
+    with st.container(border=True):
+        with st.form("media_form"):
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                tur = st.selectbox("Tür", ["Film", "Dizi", "Kitap", "Belgesel", "Podcast", "Makale"])
+            with col2:
+                ad = st.text_input("Eser Adı", placeholder="Örn: Dune, Atomic Habits...")
+            
+            cikarim = st.text_area("💡 Çıkarım / Öğrenilen", placeholder="Bu içerikten zihnine ne kattın? Ana fikir neydi?", height=100)
+            
+            puan = st.slider("Puan", 1, 10, 7)
+            
+            if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+                if not ad or not cikarim:
+                    st.warning("Lütfen eser adını ve çıkarımını yaz.")
+                else:
+                    tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                    veri = [tarih, tur, ad, cikarim, puan]
+                    
+                    with st.spinner("Kaydediliyor..."):
+                        if save_to_sheet("MediaLog", veri):
+                            st.success("✅ Bilgi havuzuna eklendi!")
+                            st.session_state.current_page = "home"
+                            st.rerun()
 
 # ==========================================
 # 🚀 PRODUCTIVITY MODÜLÜ
@@ -339,13 +376,11 @@ def render_productivity():
         st.info("Disiplin için her gün bu 3 görevi tamamla.")
         
         with st.form("prod_form"):
-            # 1 ve 2: Checkbox
             check_book = st.checkbox("📚 20 Dakika Kitap Okuma")
             check_tidy = st.checkbox("🧹 Evin Toplanması / Düzenlenmesi")
             
             st.divider()
             
-            # 3: Metin Alanı
             text_good = st.text_area("🌟 Gün içinde neyi iyi yaptım?", placeholder="Bugün başardığın küçük veya büyük bir şey yaz...")
             
             if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
@@ -727,3 +762,4 @@ elif st.session_state.current_page == "settings": render_settings()
 elif st.session_state.current_page == "quit_smoking": render_quit_smoking()
 elif st.session_state.current_page == "smoking_intervention": render_smoking_intervention()
 elif st.session_state.current_page == "productivity": render_productivity()
+elif st.session_state.current_page == "media_log": render_media_log()
