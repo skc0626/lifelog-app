@@ -331,7 +331,7 @@ def render_home():
         st.button("⚙️ Ayarlar", on_click=navigate_to, args=("settings",), use_container_width=True, type="secondary")
 
 # ==========================================
-# 🧠 MEDYA LOG MODÜLÜ (YENİLENMİŞ)
+# 🧠 MEDYA LOG MODÜLÜ
 # ==========================================
 def render_media_log():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -400,7 +400,7 @@ def render_productivity():
                             st.rerun()
 
 # ==========================================
-# 🏋️‍♂️ SPOR MODÜLÜ (GÜNCELLENDİ: EXPANDER)
+# 🏋️‍♂️ SPOR MODÜLÜ (EXPANDER)
 # ==========================================
 def render_sport():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
@@ -420,7 +420,7 @@ def render_sport():
             set_sayisi = hareket_veri["set"]
             hedef_bilgi = hareket_veri.get("hedef", "")
             
-            # EXPANDER YAPISI: Her hareketi bir kutu içine al
+            # EXPANDER YAPISI
             with st.expander(f"📌 {hareket_adi}", expanded=False):
                 
                 if hareket_adi in history_data:
@@ -510,6 +510,7 @@ def render_weight():
                             st.success(f"✅ {kilo} kg kaydedildi.")
                 else: st.warning("Kilo girmeyi unuttun.")
 
+# --- BUG FIX: SİGARA BIRAKMA TARİHİ HESAPLAMA ---
 def render_quit_smoking():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🚭 Sigarasız Yaşam")
@@ -522,14 +523,28 @@ def render_quit_smoking():
         return
 
     now = get_tr_now()
+    
+    # Timezone-aware tarih oluşturma (Güvenli Yöntem)
     try:
-        start_dt = datetime.datetime.combine(quit_date, datetime.time())
-        delta = now - start_dt.replace(tzinfo=pytz.timezone('Europe/Istanbul'))
-    except Exception:
-        delta = now - datetime.datetime.combine(quit_date, datetime.time())
+        # Seçilen tarihin gece yarısını (00:00) Istanbul saatine göre ayarla
+        tz = pytz.timezone('Europe/Istanbul')
+        naive_start = datetime.datetime.combine(quit_date, datetime.time.min)
+        start_dt = tz.localize(naive_start)
         
-    total_seconds = int(delta.total_seconds())
-    days = delta.days
+        delta = now - start_dt
+    except Exception as e:
+        # Fallback (Hata durumunda)
+        start_dt = datetime.datetime.combine(quit_date, datetime.time())
+        delta = now.replace(tzinfo=None) - start_dt
+
+    # Negatif değerleri (gelecek tarihi veya bugün seçilip saat farkı olanları) sıfırla
+    if delta.total_seconds() < 0:
+        total_seconds = 0
+        days = 0
+    else:
+        total_seconds = int(delta.total_seconds())
+        days = delta.days
+
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
 
