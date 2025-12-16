@@ -9,14 +9,8 @@ import pandas as pd
 import pytz
 import random
 
-# --- SABİT MOTİVASYON KARTLARI ---
-MOTIVATION_CARDS = [
-    "Unutma, daha **enerjik** olmak için sigarayı bıraktın. Şu anki isteğin **geçici** bir dürtü. İçersen, kendini **yarın sabahki halsizliğe** mahkûm edeceksin.",
-    "Sporda **daha iyi** olmak için sigarayı bıraktın. **Akciğer kapasiteni** küçülterek o son seti yapamazsın. Bu istek **5 dakika** sürecek. İçersen pişman olacaksın.",
-    "Sen **hiçbir şeye bağımlı bir insan olamazsın**. Bu istek, kontrolü kaybetme korkundur. Sigara, **zayıf insanların kaçışıdır**. Sen değilsin.",
-    "Bile isteye **kendine zarar verecek** bir insan olamazsın. Vücudun bir **mühendislik harikasıdır**. Ona saygısızlık etme. Pişman olacaksın.",
-    "Senin teknik zihnin, **verimsizliği** tolere edemez. Sigara sadece **zaman, para ve ömrü yakan bir bug**'dır. Bu isteği düzelt, içme."
-]
+# --- SABİT MOTİVASYON KARTLARI (ARTIK ANALİZ İÇİN KULLANILABİLİR) ---
+# (Şimdilik kodda duruyor ama aktif kriz yönetimi kaldırıldı)
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
@@ -59,8 +53,7 @@ def get_all_sheet_data(tab_name):
 # --- YARDIMCI FONKSİYONLAR ---
 def get_settings():
     defaults = {
-        "target_cal": 2450, "target_prot": 200, "target_karb": 300, "target_yag": 50,
-        "smoke_quit_date": None 
+        "target_cal": 2450, "target_prot": 200, "target_karb": 300, "target_yag": 50
     }
     try:
         data = get_all_sheet_data("Settings")
@@ -69,12 +62,6 @@ def get_settings():
         settings = {row['Key']: row['Value'] for row in data}
         for k, v in defaults.items():
             if k not in settings: settings[k] = v
-        
-        if settings.get("smoke_quit_date") and isinstance(settings["smoke_quit_date"], str):
-             try:
-                 settings["smoke_quit_date"] = datetime.datetime.strptime(settings["smoke_quit_date"], "%Y-%m-%d").date()
-             except:
-                 settings["smoke_quit_date"] = None
         return settings
     except: return defaults
 
@@ -102,6 +89,7 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
+    s_data = get_all_sheet_data("SmokeLog") # Yeni Veri
 
     # 1. Money
     if m_data:
@@ -164,6 +152,17 @@ def get_dashboard_data():
             else: stats['last_weight'] = None
         else: stats['last_weight'] = None
     else: stats['last_weight'] = None
+
+    # 5. Smoking (YENİ)
+    if s_data:
+        df_s = pd.DataFrame(s_data)
+        if "Tarih" in df_s.columns and "Adet" in df_s.columns:
+            df_s["Tarih"] = pd.to_datetime(df_s["Tarih"], errors='coerce')
+            df_s["Adet"] = pd.to_numeric(df_s["Adet"], errors='coerce').fillna(0)
+            daily_s = df_s[df_s["Tarih"].dt.date == today]
+            stats['smoke_today'] = int(daily_s["Adet"].sum())
+        else: stats['smoke_today'] = 0
+    else: stats['smoke_today'] = 0
     
     return stats
 
@@ -233,14 +232,12 @@ if "ai_nutrition_result" not in st.session_state: st.session_state.ai_nutrition_
 if "ai_text_result" not in st.session_state: st.session_state.ai_text_result = None
 if "user_settings" not in st.session_state: st.session_state.user_settings = get_settings()
 if "camera_active" not in st.session_state: st.session_state.camera_active = False
-if "current_motivation_card" not in st.session_state: st.session_state.current_motivation_card = None 
 
 def navigate_to(page):
     st.session_state.current_page = page
     st.session_state.camera_active = False
     st.session_state.ai_nutrition_result = None
     st.session_state.ai_text_result = None
-    st.session_state.current_motivation_card = None 
 
 def open_camera(): st.session_state.camera_active = True; st.session_state.ai_nutrition_result = None 
 def close_camera(): st.session_state.camera_active = False
@@ -277,7 +274,7 @@ def render_home():
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
 
-    # --- KART 2: KİLO & SPOR ---
+    # --- KART 2: KİLO & SİGARA (YENİ) ---
     c3, c4 = st.columns(2)
     
     with c3:
@@ -294,13 +291,10 @@ def render_home():
 
     with c4:
         with st.container(border=True):
-            st.markdown("### 🏋️‍♂️ Spor Geçmişi")
-            workouts = stats.get('last_workouts', [])
-            if workouts:
-                for w_name, w_date in workouts:
-                    st.markdown(f"• {w_name} <span style='color:grey; font-size:0.8rem;'>({w_date})</span>", unsafe_allow_html=True)
-            else:
-                st.caption("Kayıt yok.")
+            st.markdown("### 🚬 Sigara (Bugün)")
+            smoke_count = stats.get('smoke_today', 0)
+            st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700; color:#d9534f;'>{smoke_count} Adet</h2>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Davranış Takibi</p>", unsafe_allow_html=True)
 
     st.write("") 
     st.write("### Menü")
@@ -312,7 +306,7 @@ def render_home():
         st.button("🏋️‍♂️ Antrenman Gir", on_click=navigate_to, args=("sport",), use_container_width=True, type="primary")
     with col2:
         st.button("🥗 Öğün Gir", on_click=navigate_to, args=("nutrition",), use_container_width=True, type="primary")
-        st.button("🚭 Sigarayı Bırak", on_click=navigate_to, args=("quit_smoking",), use_container_width=True, type="primary")
+        st.button("🚬 Sigara Takip", on_click=navigate_to, args=("smoke_log",), use_container_width=True, type="primary") 
     
     # Yeni Modüller (Kırmızı)
     col3, col4 = st.columns(2)
@@ -420,7 +414,6 @@ def render_sport():
             set_sayisi = hareket_veri["set"]
             hedef_bilgi = hareket_veri.get("hedef", "")
             
-            # EXPANDER YAPISI
             with st.expander(f"📌 {hareket_adi}", expanded=False):
                 
                 if hareket_adi in history_data:
@@ -481,14 +474,11 @@ def render_settings():
             with c2: t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
             with c3: t_yag = st.number_input("Yağ (g)", value=int(current.get('target_yag', 50)), step=5)
             
-            st.subheader("Sigara Bırakma")
-            default_quit_date = current.get('smoke_quit_date') if current.get('smoke_quit_date') else datetime.date.today()
-            quit_date_input = st.date_input("Bırakma Başlangıç Tarihi", value=default_quit_date)
+            # Sigara Ayarı Kaldırıldı (Artık log tutuluyor)
             
             if st.form_submit_button("💾 Kaydet", type="primary", use_container_width=True):
                 new_settings = {
-                    "target_cal": t_cal, "target_prot": t_prot, "target_karb": t_karb, "target_yag": t_yag,
-                    "smoke_quit_date": quit_date_input
+                    "target_cal": t_cal, "target_prot": t_prot, "target_karb": t_karb, "target_yag": t_yag
                 }
                 with st.spinner("Kaydediliyor..."):
                     if save_settings(new_settings):
@@ -510,99 +500,90 @@ def render_weight():
                             st.success(f"✅ {kilo} kg kaydedildi.")
                 else: st.warning("Kilo girmeyi unuttun.")
 
-# --- BUG FIX: SİGARA BIRAKMA TARİHİ HESAPLAMA ---
-def render_quit_smoking():
+# ==========================================
+# 💰 FİNANS MODÜLÜ (GÜNCELLENDİ: GEÇMİŞİ GÖR)
+# ==========================================
+def render_money():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("🚭 Sigarasız Yaşam")
-
-    quit_date = st.session_state.user_settings.get('smoke_quit_date')
+    st.title("💸 Finans")
     
-    if not quit_date:
-        st.warning("Lütfen Ayarlar'dan bırakma başlangıç tarihinizi girin!")
-        st.button("Ayarlar'a Git", on_click=navigate_to, args=("settings",))
-        return
-
-    now = get_tr_now()
+    stats = get_dashboard_data()
     
-    # Timezone-aware tarih oluşturma (Güvenli Yöntem)
-    try:
-        # Seçilen tarihin gece yarısını (00:00) Istanbul saatine göre ayarla
-        tz = pytz.timezone('Europe/Istanbul')
-        naive_start = datetime.datetime.combine(quit_date, datetime.time.min)
-        start_dt = tz.localize(naive_start)
-        
-        delta = now - start_dt
-    except Exception as e:
-        # Fallback (Hata durumunda)
-        start_dt = datetime.datetime.combine(quit_date, datetime.time())
-        delta = now.replace(tzinfo=None) - start_dt
-
-    # Negatif değerleri (gelecek tarihi veya bugün seçilip saat farkı olanları) sıfırla
-    if delta.total_seconds() < 0:
-        total_seconds = 0
-        days = 0
-    else:
-        total_seconds = int(delta.total_seconds())
-        days = delta.days
-
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-
     with st.container(border=True):
-        st.subheader("Sigarasız Geçen Süre")
-        st.markdown(f"<h1 style='text-align: center; margin:0; padding:0; font-weight:700;'>{days} <span style='font-size:0.8em;'>Gün</span> {hours % 24} <span style='font-size:0.8em;'>Saat</span></h1>", unsafe_allow_html=True)
-        st.caption(f"Başlangıç: {quit_date.strftime('%d.%m.%Y')}")
+        c1, c2 = st.columns(2)
+        c1.metric("Bugün", f"{stats.get('money_total', 0):,.2f} ₺")
+        c2.metric("Bu Ay", f"{stats.get('money_month', 0):,.2f} ₺")
+    
+    st.write("")
 
+    # --- GEÇMİŞ HARCAMALAR (YENİ ÖZELLİK) ---
+    with st.expander("👀 Bu Ayki Harcamaları Gör", expanded=False):
+        m_data = get_all_sheet_data("Money")
+        if m_data:
+            df_m = pd.DataFrame(m_data)
+            if "Tarih" in df_m.columns and "Tutar" in df_m.columns:
+                 # Tarihe göre tersten sırala (En yeni en üstte)
+                 df_m = df_m.sort_values(by="Tarih", ascending=False)
+                 st.dataframe(df_m[["Tarih", "Kategori", "Açıklama", "Tutar"]], use_container_width=True, hide_index=True)
+            else: st.info("Veri formatı uygun değil.")
+        else: st.info("Henüz harcama yok.")
+    
     st.divider()
 
-    st.subheader("🚨 Acil Müdahale")
-
-    if st.button("🚨 Canım Sigara İstedi", type="primary", use_container_width=True):
-        st.session_state.current_motivation_card = random.choice(MOTIVATION_CARDS)
-        st.session_state.current_page = "smoking_intervention" 
-        st.rerun()
-
-def render_smoking_intervention():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("quit_smoking",), type="secondary")
-    st.title("💡 Kontrol Sende")
-    
-    motivation_card = st.session_state.get('current_motivation_card')
-
-    if motivation_card:
-        st.error("DUR. Kontrol Sende.", icon="🛑")
+    with st.form("harcama_formu", clear_on_submit=True):
+        tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
+        c1, c2 = st.columns(2)
+        with c1:
+            kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
+        with c2:
+            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
+        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
+        durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
         
-        with st.container(border=True):
-            st.markdown(f"**Neden Bıraktığını Unutma:**")
-            st.markdown(motivation_card, unsafe_allow_html=True)
+        if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+            if tutar > 0:
+                tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
+                with st.spinner("Kaydediliyor..."):
+                    if save_to_sheet("Money", veri):
+                        st.success(f"✅ {tutar} TL Kaydedildi")
+            else: st.warning("Tutar gir.")
+
+# ==========================================
+# 🚬 SİGARA TAKİP MODÜLÜ (YENİ)
+# ==========================================
+def render_smoke_log():
+    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
+    st.title("🚬 Sigara Takibi")
+    st.caption("Yargılama yok. Sadece veri topla.")
+
+    with st.form("smoke_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            adet = st.number_input("Adet", min_value=1, max_value=20, value=1, step=1)
+        with col2:
+            neden = st.selectbox("Neden?", [
+                "Stres / Gerginlik",
+                "Yemek Sonrası",
+                "Kahve Yanı",
+                "Can Sıkıntısı",
+                "Sosyal Ortam",
+                "Alışkanlık / Rutin",
+                "Keyif",
+                "Diğer"
+            ])
+        
+        if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
+            tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
+            veri = [tarih, adet, neden]
             
-        st.divider()
+            with st.spinner("Kaydediliyor..."):
+                if save_to_sheet("SmokeLog", veri):
+                    st.toast(f"{adet} adet kaydedildi.", icon="🚬")
+                    st.session_state.current_page = "home"
+                    st.rerun()
 
-    with st.form("intervention_form"):
-        st.subheader("Zihinsel Çevrim (5 Dakika Kuralı)")
-        
-        root_cause = st.selectbox(
-            "1. Şu anki isteğin asıl nedeni ne? (Seçim zorunlu değil)",
-            ["Can sıkıntısı", "Stres/Kaygı", "Kahve/Alkol", "Sosyal Alışkanlık", "Diğer/Tanımlanamayan", "Seçmedim/Önemli Değil"]
-        )
-
-        output_analysis = st.text_area(
-            "2. Bununla neyi çözmeye çalışıyorsun? (Ne bekliyorsun?)",
-            placeholder="Örn: 'Sadece elim dolsun istiyorum.' / 'Toplantı stresini atacağım.'",
-            max_chars=200
-        )
-
-        future_decision = st.radio(
-            "3. Eğer şimdi içersen, bu kararı 10 dakika sonra rasyonel ve doğru bulur musun?",
-            ["Hayır, pişman olurum.", "Evet, rahatlarım.", "Emin değilim."],
-            horizontal=True
-        )
-
-        if st.form_submit_button("Krizi Logla ve Kontrolü Geri Al", type="primary", use_container_width=True):
-            st.success("Kriz Loglandı. Görevin bitti. Kontrolü geri aldın.")
-            st.warning("Şimdi git, 5 dakika boyunca derin nefes al ve power-pose yap.")
-            st.session_state.current_page = "quit_smoking"
-            st.rerun()
-
+# ... (render_nutrition aynı kalıyor)
 def render_nutrition():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("🥗 Beslenme")
@@ -736,38 +717,6 @@ def render_nutrition():
                     if save_to_sheet("Nutrition", veri):
                         st.success(f"Kaydedildi!")
 
-def render_money():
-    st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
-    st.title("💸 Finans")
-    
-    stats = get_dashboard_data()
-    
-    with st.container(border=True):
-        c1, c2 = st.columns(2)
-        c1.metric("Bugün", f"{stats.get('money_total', 0):,.2f} ₺")
-        c2.metric("Bu Ay", f"{stats.get('money_month', 0):,.2f} ₺")
-    
-    st.write("")
-
-    with st.form("harcama_formu", clear_on_submit=True):
-        tutar = st.number_input("Tutar (TL)", min_value=0.0, step=10.0, format="%.2f")
-        c1, c2 = st.columns(2)
-        with c1:
-            kategori = st.selectbox("Kategori", ["Market/Gıda", "Yemek (Dışarı)", "Ulaşım", "Ev/Fatura", "Giyim", "Teknoloji", "Eğlence", "Abonelik", "Diğer"])
-        with c2:
-            odeme = st.selectbox("Ödeme", ["Kredi Kartı", "Nakit", "Setcard"])
-        aciklama = st.text_input("Açıklama", placeholder="Ne aldın?")
-        durtusel = st.toggle("⚠️ Dürtüsel Harcama", value=False)
-        
-        if st.form_submit_button("Kaydet", type="primary", use_container_width=True):
-            if tutar > 0:
-                tarih = get_tr_now().strftime("%Y-%m-%d %H:%M")
-                veri = [tarih, tutar, kategori, odeme, aciklama, "Evet" if durtusel else "Hayır"]
-                with st.spinner("Kaydediliyor..."):
-                    if save_to_sheet("Money", veri):
-                        st.success(f"✅ {tutar} TL Kaydedildi")
-            else: st.warning("Tutar gir.")
-
 # ==========================================
 # ROUTER
 # ==========================================
@@ -777,7 +726,6 @@ elif st.session_state.current_page == "nutrition": render_nutrition()
 elif st.session_state.current_page == "sport": render_sport()
 elif st.session_state.current_page == "weight": render_weight()
 elif st.session_state.current_page == "settings": render_settings()
-elif st.session_state.current_page == "quit_smoking": render_quit_smoking()
-elif st.session_state.current_page == "smoking_intervention": render_smoking_intervention()
+elif st.session_state.current_page == "smoke_log": render_smoke_log() # Yeni
 elif st.session_state.current_page == "productivity": render_productivity()
 elif st.session_state.current_page == "media_log": render_media_log()
