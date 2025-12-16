@@ -9,9 +9,6 @@ import pandas as pd
 import pytz
 import random
 
-# --- SABİT MOTİVASYON KARTLARI (ARTIK ANALİZ İÇİN KULLANILABİLİR) ---
-# (Şimdilik kodda duruyor ama aktif kriz yönetimi kaldırıldı)
-
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="LifeLog", page_icon="🌱", layout="centered")
 
@@ -89,7 +86,7 @@ def get_dashboard_data():
     n_data = get_all_sheet_data("Nutrition")
     g_data = get_all_sheet_data("Gym")
     w_data = get_all_sheet_data("Weight")
-    s_data = get_all_sheet_data("SmokeLog") # Yeni Veri
+    s_data = get_all_sheet_data("SmokeLog")
 
     # 1. Money
     if m_data:
@@ -153,7 +150,7 @@ def get_dashboard_data():
         else: stats['last_weight'] = None
     else: stats['last_weight'] = None
 
-    # 5. Smoking (YENİ)
+    # 5. Smoking
     if s_data:
         df_s = pd.DataFrame(s_data)
         if "Tarih" in df_s.columns and "Adet" in df_s.columns:
@@ -274,22 +271,22 @@ def render_home():
                 prog = min(current_cal / target_cal, 1.0)
                 st.progress(prog)
 
-    # --- KART 2: KİLO & SİGARA (YENİ) ---
+    # --- KART 2: SPOR & SİGARA ---
     c3, c4 = st.columns(2)
     
     with c3:
+        # Kilo yerine Spor geri geldi
         with st.container(border=True):
-            st.markdown("### ⚖️ Kilo")
-            last_w = stats.get('last_weight')
-            last_w_date = stats.get('last_weight_date')
-            
-            if last_w:
-                st.markdown(f"<h2 style='text-align: center; margin:0; padding:0; font-weight:700;'>{last_w} kg</h2>", unsafe_allow_html=True)
-                st.markdown(f"<p style='text-align: center; color:grey; margin:0;'>Son: {last_w_date}</p>", unsafe_allow_html=True)
+            st.markdown("### 🏋️‍♂️ Spor Geçmişi")
+            workouts = stats.get('last_workouts', [])
+            if workouts:
+                for w_name, w_date in workouts:
+                    st.markdown(f"• {w_name} <span style='color:grey; font-size:0.8rem;'>({w_date})</span>", unsafe_allow_html=True)
             else:
-                st.info("Veri yok")
+                st.caption("Kayıt yok.")
 
     with c4:
+        # Sigara Modülü
         with st.container(border=True):
             st.markdown("### 🚬 Sigara (Bugün)")
             smoke_count = stats.get('smoke_today', 0)
@@ -474,8 +471,6 @@ def render_settings():
             with c2: t_karb = st.number_input("Karb (g)", value=int(current.get('target_karb', 300)), step=5)
             with c3: t_yag = st.number_input("Yağ (g)", value=int(current.get('target_yag', 50)), step=5)
             
-            # Sigara Ayarı Kaldırıldı (Artık log tutuluyor)
-            
             if st.form_submit_button("💾 Kaydet", type="primary", use_container_width=True):
                 new_settings = {
                     "target_cal": t_cal, "target_prot": t_prot, "target_karb": t_karb, "target_yag": t_yag
@@ -488,6 +483,19 @@ def render_settings():
 def render_weight():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
     st.title("⚖️ Kilo Takibi")
+
+    # Kilo Metriğini Buraya Taşıdık
+    stats = get_dashboard_data()
+    last_w = stats.get('last_weight')
+    last_w_date = stats.get('last_weight_date')
+    
+    if last_w:
+        st.metric("Son Kayıtlı Kilo", f"{last_w} kg", f"{last_w_date}")
+    else:
+        st.info("Henüz kilo kaydı yok.")
+    
+    st.divider()
+
     with st.container(border=True):
         with st.form("weight_form"):
             kilo = st.number_input("Güncel Kilo (kg)", min_value=0.0, step=0.1, format="%.1f")
@@ -516,7 +524,7 @@ def render_money():
     
     st.write("")
 
-    # --- GEÇMİŞ HARCAMALAR (YENİ ÖZELLİK) ---
+    # --- GEÇMİŞ HARCAMALAR ---
     with st.expander("👀 Bu Ayki Harcamaları Gör", expanded=False):
         m_data = get_all_sheet_data("Money")
         if m_data:
@@ -550,7 +558,7 @@ def render_money():
             else: st.warning("Tutar gir.")
 
 # ==========================================
-# 🚬 SİGARA TAKİP MODÜLÜ (YENİ)
+# 🚬 SİGARA TAKİP MODÜLÜ
 # ==========================================
 def render_smoke_log():
     st.button("⬅️ Geri Dön", on_click=navigate_to, args=("home",), type="secondary")
